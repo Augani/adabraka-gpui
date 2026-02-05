@@ -15,7 +15,7 @@ keywords = [
 ]
 categories = ["gui"]
 license = "Apache-2.0"
-repository = "https://github.com/AugustusOtu/adabraka-gpui"
+repository = "https://github.com/Augani/adabraka-gpui"
 
 [features]
 default = [

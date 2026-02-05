@@ -6,7 +6,7 @@ build = "build.rs"
 publish = true
 description = "Bindings to macOS media handling APIs (originally from Zed - github.com/zed-industries/zed)"
 authors = ["Adabraka Team"]
-repository = "https://github.com/AugustusOtu/adabraka-gpui"
+repository = "https://github.com/Augani/adabraka-gpui"
 readme = false
 license = "Apache-2.0"
 
