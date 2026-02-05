@@ -1,0 +1,24 @@
+[package]
+name = "gpui_util_macros"
+version = "0.2.1"
+edition.workspace = true
+publish = true
+license = "Apache-2.0"
+description = "Utility macros for Zed"
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/util_macros.rs"
+proc-macro = true
+doctest = false
+
+[dependencies]
+quote.workspace = true
+syn.workspace = true
+perf.workspace = true
+workspace-hack.workspace = true
+
+[features]
+perf-enabled = []

@@ -1,0 +1,22 @@
+[package]
+name = "gpui_collections"
+version = "0.2.1"
+edition.workspace = true
+publish = true
+license = "Apache-2.0"
+description = "Standard collection type re-exports used by Zed and GPUI"
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/collections.rs"
+doctest = false
+
+[features]
+test-support = []
+
+[dependencies]
+indexmap.workspace = true
+rustc-hash.workspace = true
+workspace-hack.workspace = true
