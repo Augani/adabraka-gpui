@@ -1,10 +1,11 @@
 #![cfg_attr(not(target_os = "windows"), allow(unused))]
 #![allow(clippy::test_attr_in_doctest)]
 
+#[cfg(feature = "perf-enabled")]
 use perf::*;
 use proc_macro::TokenStream;
-use quote::{ToTokens, quote};
-use syn::{ItemFn, LitStr, parse_macro_input, parse_quote};
+use quote::{quote, ToTokens};
+use syn::{parse_macro_input, parse_quote, ItemFn, LitStr};
 
 /// A macro used in tests for cross-platform path string literals in tests. On Windows it replaces
 /// `/` with `\\` and adds `C:` to the beginning of absolute paths. On other platforms, the path is
@@ -90,7 +91,30 @@ pub fn line_endings(input: TokenStream) -> TokenStream {
     })
 }
 
-/// Inner data for the perf macro.
+#[cfg(not(feature = "perf-enabled"))]
+#[derive(Default, Clone, Copy)]
+enum Importance {
+    Critical,
+    Important,
+    #[default]
+    Average,
+    Iffy,
+    Fluff,
+}
+
+#[cfg(not(feature = "perf-enabled"))]
+impl std::fmt::Display for Importance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Importance::Critical => write!(f, "Critical"),
+            Importance::Important => write!(f, "Important"),
+            Importance::Average => write!(f, "Average"),
+            Importance::Iffy => write!(f, "Iffy"),
+            Importance::Fluff => write!(f, "Fluff"),
+        }
+    }
+}
+
 #[derive(Default)]
 struct PerfArgs {
     /// How many times to loop a test before rerunning the test binary. If left
@@ -201,12 +225,11 @@ pub fn perf(our_attr: TokenStream, input: TokenStream) -> TokenStream {
     }
     attrs_main.push(parse_quote!(#[allow(non_snake_case)]));
 
-    let fns = if cfg!(perf_enabled) {
+    #[cfg(feature = "perf-enabled")]
+    let fns = {
         #[allow(clippy::wildcard_imports, reason = "We control the other side")]
         use consts::*;
 
-        // Make the ident obvious when calling, for the test parser.
-        // Also set up values for the second metadata-returning "test".
         let mut new_ident_main = sig_main.ident.to_string();
         let mut new_ident_meta = new_ident_main.clone();
         new_ident_main.push_str(SUF_NORMAL);
@@ -215,15 +238,11 @@ pub fn perf(our_attr: TokenStream, input: TokenStream) -> TokenStream {
         let new_ident_main = syn::Ident::new(&new_ident_main, sig_main.ident.span());
         sig_main.ident = new_ident_main;
 
-        // We don't want any nonsense if the original test had a weird signature.
         let new_ident_meta = syn::Ident::new(&new_ident_meta, sig_main.ident.span());
         let sig_meta = parse_quote!(fn #new_ident_meta());
         let attrs_meta = parse_quote!(#[test] #[allow(non_snake_case)]);
 
-        // Make the test loop as the harness instructs it to.
         let block_main = {
-            // The perf harness will pass us the value in an env var. Even if we
-            // have a preset value, just do this to keep the code paths unified.
             parse_quote!({
                 let iter_count = std::env::var(#ITER_ENV_VAR).unwrap().parse::<usize>().unwrap();
                 for _ in 0..iter_count {
@@ -233,10 +252,6 @@ pub fn perf(our_attr: TokenStream, input: TokenStream) -> TokenStream {
         };
         let importance = format!("{}", args.importance);
         let block_meta = {
-            // This function's job is to just print some relevant info to stdout,
-            // based on the params this attr is passed. It's not an actual test.
-            // Since we use a custom attr set on our metadata fn, it shouldn't
-            // cause problems with xfail tests.
             let q_iter = if let Some(iter) = args.iterations {
                 quote! {
                     println!("{} {} {}", #MDATA_LINE_PREF, #ITER_COUNT_LINE_NAME, #iter);
@@ -256,14 +271,12 @@ pub fn perf(our_attr: TokenStream, input: TokenStream) -> TokenStream {
         };
 
         vec![
-            // The real test.
             ItemFn {
                 attrs: attrs_main,
                 vis: vis.clone(),
                 sig: sig_main,
                 block: block_main,
             },
-            // The fake test.
             ItemFn {
                 attrs: attrs_meta,
                 vis,
@@ -271,14 +284,15 @@ pub fn perf(our_attr: TokenStream, input: TokenStream) -> TokenStream {
                 block: block_meta,
             },
         ]
-    } else {
-        vec![ItemFn {
-            attrs: attrs_main,
-            vis,
-            sig: sig_main,
-            block,
-        }]
     };
+
+    #[cfg(not(feature = "perf-enabled"))]
+    let fns = vec![ItemFn {
+        attrs: attrs_main,
+        vis,
+        sig: sig_main,
+        block,
+    }];
 
     fns.into_iter()
         .flat_map(|f| TokenStream::from(f.into_token_stream()))

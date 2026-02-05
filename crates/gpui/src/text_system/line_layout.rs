@@ -541,6 +541,21 @@ impl LineLayoutCache {
         Text: AsRef<str>,
         SharedString: From<Text>,
     {
+        self.layout_line_with_spacing(text, font_size, runs, force_width, None)
+    }
+
+    pub fn layout_line_with_spacing<Text>(
+        &self,
+        text: Text,
+        font_size: Pixels,
+        runs: &[FontRun],
+        force_width: Option<Pixels>,
+        letter_spacing: Option<Pixels>,
+    ) -> Arc<LineLayout>
+    where
+        Text: AsRef<str>,
+        SharedString: From<Text>,
+    {
         let key = &CacheKeyRef {
             text: text.as_ref(),
             font_size,
@@ -550,45 +565,67 @@ impl LineLayoutCache {
         } as &dyn AsCacheKeyRef;
 
         let current_frame = self.current_frame.upgradable_read();
-        if let Some(layout) = current_frame.lines.get(key) {
-            return layout.clone();
+        if letter_spacing.is_none() {
+            if let Some(layout) = current_frame.lines.get(key) {
+                return layout.clone();
+            }
         }
 
         let mut current_frame = RwLockUpgradableReadGuard::upgrade(current_frame);
-        if let Some((key, layout)) = self.previous_frame.lock().lines.remove_entry(key) {
-            current_frame.lines.insert(key.clone(), layout.clone());
-            current_frame.used_lines.push(key);
-            layout
-        } else {
-            let text = SharedString::from(text);
-            let mut layout = self
-                .platform_text_system
-                .layout_line(&text, font_size, runs);
+        if letter_spacing.is_none() {
+            if let Some((key, layout)) = self.previous_frame.lock().lines.remove_entry(key) {
+                current_frame.lines.insert(key.clone(), layout.clone());
+                current_frame.used_lines.push(key);
+                return layout;
+            }
+        }
 
-            if let Some(force_width) = force_width {
-                let mut glyph_pos = 0;
-                for run in layout.runs.iter_mut() {
-                    for glyph in run.glyphs.iter_mut() {
-                        if (glyph.position.x - glyph_pos * force_width).abs() > px(1.) {
-                            glyph.position.x = glyph_pos * force_width;
-                        }
-                        glyph_pos += 1;
+        let text = SharedString::from(text);
+        let mut layout = self
+            .platform_text_system
+            .layout_line(&text, font_size, runs);
+
+        if let Some(force_width) = force_width {
+            let mut glyph_pos = 0;
+            for run in layout.runs.iter_mut() {
+                for glyph in run.glyphs.iter_mut() {
+                    if (glyph.position.x - glyph_pos * force_width).abs() > px(1.) {
+                        glyph.position.x = glyph_pos * force_width;
                     }
+                    glyph_pos += 1;
                 }
             }
-
-            let key = Arc::new(CacheKey {
-                text,
-                font_size,
-                runs: SmallVec::from(runs),
-                wrap_width: None,
-                force_width,
-            });
-            let layout = Arc::new(layout);
-            current_frame.lines.insert(key.clone(), layout.clone());
-            current_frame.used_lines.push(key);
-            layout
         }
+
+        if let Some(spacing) = letter_spacing {
+            let mut glyph_index: usize = 0;
+            for run in layout.runs.iter_mut() {
+                for glyph in run.glyphs.iter_mut() {
+                    glyph.position.x = glyph.position.x + spacing * glyph_index as f32;
+                    glyph_index += 1;
+                }
+            }
+            let total_glyphs = glyph_index;
+            if total_glyphs > 1 {
+                layout.width = layout.width + spacing * (total_glyphs - 1) as f32;
+            }
+        }
+
+        if letter_spacing.is_some() {
+            return Arc::new(layout);
+        }
+
+        let key = Arc::new(CacheKey {
+            text,
+            font_size,
+            runs: SmallVec::from(runs),
+            wrap_width: None,
+            force_width,
+        });
+        let layout = Arc::new(layout);
+        current_frame.lines.insert(key.clone(), layout.clone());
+        current_frame.used_lines.push(key);
+        layout
     }
 }
 

@@ -2815,14 +2815,25 @@ impl Window {
         let content_mask = self.content_mask();
         let opacity = self.element_opacity();
         for shadow in shadows {
-            let shadow_bounds = (bounds + shadow.offset).dilate(shadow.spread_radius);
+            let shadow_bounds = if shadow.inset {
+                bounds.contract(shadow.spread_radius)
+            } else {
+                (bounds + shadow.offset).dilate(shadow.spread_radius)
+            };
             self.next_frame.scene.insert_primitive(Shadow {
                 order: 0,
                 blur_radius: shadow.blur_radius.scale(scale_factor),
                 bounds: shadow_bounds.scale(scale_factor),
-                content_mask: content_mask.scale(scale_factor),
+                content_mask: if shadow.inset {
+                    ContentMask {
+                        bounds: bounds.scale(scale_factor),
+                    }
+                } else {
+                    content_mask.scale(scale_factor)
+                },
                 corner_radii: corner_radii.scale(scale_factor),
                 color: shadow.color.opacity(opacity),
+                inset: if shadow.inset { 1 } else { 0 },
             });
         }
     }
@@ -2851,6 +2862,7 @@ impl Window {
             corner_radii: quad.corner_radii.scale(scale_factor),
             border_widths: quad.border_widths.scale(scale_factor),
             border_style: quad.border_style,
+            continuous_corners: if quad.continuous_corners { 1 } else { 0 },
         });
     }
 
@@ -5022,6 +5034,8 @@ pub struct PaintQuad {
     pub border_color: Hsla,
     /// The style of the quad's borders.
     pub border_style: BorderStyle,
+    /// Whether to use continuous (squircle) corner rounding.
+    pub continuous_corners: bool,
 }
 
 impl PaintQuad {
@@ -5074,6 +5088,7 @@ pub fn quad(
         border_widths: border_widths.into(),
         border_color: border_color.into(),
         border_style,
+        continuous_corners: false,
     }
 }
 
@@ -5086,6 +5101,7 @@ pub fn fill(bounds: impl Into<Bounds<Pixels>>, background: impl Into<Background>
         border_widths: (0.).into(),
         border_color: transparent_black(),
         border_style: BorderStyle::default(),
+        continuous_corners: false,
     }
 }
 
@@ -5102,5 +5118,6 @@ pub fn outline(
         border_widths: (1.).into(),
         border_color: border_color.into(),
         border_style,
+        continuous_corners: false,
     }
 }

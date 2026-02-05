@@ -343,19 +343,26 @@ fn quad_sdf(point: vec2<f32>, bounds: Bounds, corner_radii: Corners) -> f32 {
 
 fn quad_sdf_impl(corner_center_to_point: vec2<f32>, corner_radius: f32) -> f32 {
     if (corner_radius == 0.0) {
-        // Fast path for unrounded corners.
         return max(corner_center_to_point.x, corner_center_to_point.y);
     } else {
-        // Signed distance of the point from a quad that is inset by corner_radius.
-        // It is negative inside this quad, and positive outside.
         let signed_distance_to_inset_quad =
-            // 0 inside the inset quad, and positive outside.
             length(max(vec2<f32>(0.0), corner_center_to_point)) +
-            // 0 outside the inset quad, and negative inside.
             min(0.0, max(corner_center_to_point.x, corner_center_to_point.y));
 
         return signed_distance_to_inset_quad - corner_radius;
     }
+}
+
+fn squircle_sdf(point: vec2<f32>, bounds: Bounds, corner_radii: Corners) -> f32 {
+    let half_size = bounds.size / 2.0;
+    let center = bounds.origin + half_size;
+    let p = abs(point - center);
+    let corner_radius = pick_corner_radius(point - center, corner_radii);
+    let effective_half = half_size - corner_radius;
+    let q = max(vec2<f32>(0.0), p - effective_half);
+    let n = 2.5;
+    let dist = pow(pow(q.x, n) + pow(q.y, n), 1.0 / n) - corner_radius;
+    return dist;
 }
 
 // Abstract away the final color transformation based on the
@@ -484,6 +491,7 @@ struct Quad {
     border_color: Hsla,
     corner_radii: Corners,
     border_widths: Edges,
+    continuous_corners: u32,
 }
 var<storage, read> b_quads: array<Quad>;
 
@@ -613,9 +621,12 @@ fn fs_quad(input: QuadVarying) -> @location(0) vec4<f32> {
         return blend_color(background_color, 1.0);
     }
 
-    // Signed distance of the point to the outside edge of the quad's border. It
-    // is positive outside this edge, and negative inside.
-    let outer_sdf = quad_sdf_impl(corner_center_to_point, corner_radius);
+    var outer_sdf: f32;
+    if (quad.continuous_corners == 1u && corner_radius > 0.0) {
+        outer_sdf = squircle_sdf(input.position.xy, quad.bounds, quad.corner_radii);
+    } else {
+        outer_sdf = quad_sdf_impl(corner_center_to_point, corner_radius);
+    }
 
     // Approximate signed distance of the point to the inside edge of the quad's
     // border. It is negative outside this edge (within the border), and
@@ -914,6 +925,7 @@ struct Shadow {
     corner_radii: Corners,
     content_mask: Bounds,
     color: Hsla,
+    inset: u32,
 }
 var<storage, read> b_shadows: array<Shadow>;
 
@@ -946,7 +958,6 @@ fn vs_shadow(@builtin(vertex_index) vertex_id: u32, @builtin(instance_index) ins
 
 @fragment
 fn fs_shadow(input: ShadowVarying) -> @location(0) vec4<f32> {
-    // Alpha clip first, since we don't have `clip_distance`.
     if (any(input.clip_distances < vec4<f32>(0.0))) {
         return vec4<f32>(0.0);
     }
@@ -958,13 +969,11 @@ fn fs_shadow(input: ShadowVarying) -> @location(0) vec4<f32> {
 
     let corner_radius = pick_corner_radius(center_to_point, shadow.corner_radii);
 
-    // The signal is only non-zero in a limited range, so don't waste samples
     let low = center_to_point.y - half_size.y;
     let high = center_to_point.y + half_size.y;
     let start = clamp(-3.0 * shadow.blur_radius, low, high);
     let end = clamp(3.0 * shadow.blur_radius, low, high);
 
-    // Accumulate samples (we can get away with surprisingly few samples)
     let step = (end - start) / 4.0;
     var y = start + step * 0.5;
     var alpha = 0.0;
@@ -973,6 +982,10 @@ fn fs_shadow(input: ShadowVarying) -> @location(0) vec4<f32> {
             shadow.blur_radius, corner_radius, half_size);
         alpha +=  blur * gaussian(y, shadow.blur_radius) * step;
         y += step;
+    }
+
+    if (shadow.inset == 1u) {
+        alpha = 1.0 - alpha;
     }
 
     return blend_color(input.color, alpha);

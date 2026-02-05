@@ -2,12 +2,12 @@
 //! can be used to describe common units, concepts, and the relationships
 //! between them.
 
-use anyhow::{Context as _, anyhow};
+use anyhow::{anyhow, Context as _};
 use core::fmt::Debug;
 use derive_more::{Add, AddAssign, Div, DivAssign, Mul, Neg, Sub, SubAssign};
 use refineable::Refineable;
-use schemars::{JsonSchema, json_schema};
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
+use schemars::{json_schema, JsonSchema};
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::borrow::Cow;
 use std::ops::Range;
 use std::{
@@ -1042,6 +1042,19 @@ where
         }
     }
 
+    /// Returns bounds contracted inward by the given amount on all sides (inverse of dilate).
+    #[must_use]
+    pub fn contract(&self, amount: T) -> Bounds<T> {
+        let double_amount = amount.clone() + amount.clone();
+        Bounds {
+            origin: self.origin.clone() + point(amount.clone(), amount),
+            size: Size {
+                width: self.size.width.clone() - double_amount.clone(),
+                height: self.size.height.clone() - double_amount,
+            },
+        }
+    }
+
     /// Extends the bounds different amounts in each direction.
     #[must_use]
     pub fn extend(&self, amount: Edges<T>) -> Bounds<T> {
@@ -1074,8 +1087,9 @@ where
     }
 }
 
-impl<T: PartialOrd + Add<T, Output = T> + Sub<Output = T> + Clone + Debug + Default + PartialEq>
-    Bounds<T>
+impl<
+        T: PartialOrd + Add<T, Output = T> + Sub<Output = T> + Clone + Debug + Default + PartialEq,
+    > Bounds<T>
 {
     /// Calculates the intersection of two `Bounds` objects.
     ///

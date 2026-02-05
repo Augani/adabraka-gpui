@@ -1,4 +1,5 @@
 use std::{
+    cell::Cell,
     rc::Rc,
     time::{Duration, Instant},
 };
@@ -9,6 +10,30 @@ use crate::{
 
 pub use easing::*;
 use smallvec::SmallVec;
+
+/// A handle that can be used to cancel an in-flight animation.
+#[derive(Clone)]
+pub struct AnimationHandle {
+    cancelled: Rc<Cell<bool>>,
+}
+
+impl AnimationHandle {
+    fn new() -> Self {
+        Self {
+            cancelled: Rc::new(Cell::new(false)),
+        }
+    }
+
+    /// Cancel the animation, causing it to jump to its final state.
+    pub fn cancel(&self) {
+        self.cancelled.set(true);
+    }
+
+    /// Whether the animation has been cancelled.
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.get()
+    }
+}
 
 /// An animation that can be applied to an element.
 #[derive(Clone)]
@@ -65,6 +90,7 @@ pub trait AnimationExt {
             element: Some(self),
             animator: Box::new(move |this, _, value| animator(this, value)),
             animations: smallvec::smallvec![animation],
+            cancel_handle: None,
         }
     }
 
@@ -83,7 +109,30 @@ pub trait AnimationExt {
             element: Some(self),
             animator: Box::new(animator),
             animations: animations.into(),
+            cancel_handle: None,
         }
+    }
+
+    /// Render this component or element with a cancellable animation.
+    /// Returns the animated element and a handle that can be used to cancel the animation.
+    fn with_cancellable_animation(
+        self,
+        id: impl Into<ElementId>,
+        animation: Animation,
+        animator: impl Fn(Self, f32) -> Self + 'static,
+    ) -> (AnimationElement<Self>, AnimationHandle)
+    where
+        Self: Sized,
+    {
+        let handle = AnimationHandle::new();
+        let element = AnimationElement {
+            id: id.into(),
+            element: Some(self),
+            animator: Box::new(move |this, _, value| animator(this, value)),
+            animations: smallvec::smallvec![animation],
+            cancel_handle: Some(handle.cancelled.clone()),
+        };
+        (element, handle)
     }
 }
 
@@ -95,6 +144,7 @@ pub struct AnimationElement<E> {
     element: Option<E>,
     animations: SmallVec<[Animation; 1]>,
     animator: Box<dyn Fn(E, usize, f32) -> E + 'static>,
+    cancel_handle: Option<Rc<Cell<bool>>>,
 }
 
 impl<E> AnimationElement<E> {
@@ -143,26 +193,34 @@ impl<E: IntoElement + 'static> Element for AnimationElement<E> {
                 start: Instant::now(),
                 animation_ix: 0,
             });
+
+            let cancelled = self.cancel_handle.as_ref().map_or(false, |h| h.get());
+
             let animation_ix = state.animation_ix;
 
-            let mut delta = state.start.elapsed().as_secs_f32()
-                / self.animations[animation_ix].duration.as_secs_f32();
+            let (delta, done) = if cancelled {
+                (1.0_f32, true)
+            } else {
+                let mut delta = state.start.elapsed().as_secs_f32()
+                    / self.animations[animation_ix].duration.as_secs_f32();
 
-            let mut done = false;
-            if delta > 1.0 {
-                if self.animations[animation_ix].oneshot {
-                    if animation_ix >= self.animations.len() - 1 {
-                        done = true;
+                let mut done = false;
+                if delta > 1.0 {
+                    if self.animations[animation_ix].oneshot {
+                        if animation_ix >= self.animations.len() - 1 {
+                            done = true;
+                        } else {
+                            state.start = Instant::now();
+                            state.animation_ix += 1;
+                        }
+                        delta = 1.0;
                     } else {
-                        state.start = Instant::now();
-                        state.animation_ix += 1;
+                        delta %= 1.0;
                     }
-                    delta = 1.0;
-                } else {
-                    delta %= 1.0;
                 }
-            }
-            let delta = (self.animations[animation_ix].easing)(delta);
+                let delta = (self.animations[animation_ix].easing)(delta);
+                (delta, done)
+            };
 
             debug_assert!(
                 (0.0..=1.0).contains(&delta),

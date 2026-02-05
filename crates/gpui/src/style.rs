@@ -5,11 +5,11 @@ use std::{
 };
 
 use crate::{
-    AbsoluteLength, App, Background, BackgroundTag, BorderStyle, Bounds, ContentMask, Corners,
-    CornersRefinement, CursorStyle, DefiniteLength, DevicePixels, Edges, EdgesRefinement, Font,
-    FontFallbacks, FontFeatures, FontStyle, FontWeight, GridLocation, Hsla, Length, Pixels, Point,
-    PointRefinement, Rgba, SharedString, Size, SizeRefinement, Styled, TextRun, Window, black, phi,
-    point, quad, rems, size,
+    black, phi, point, quad, rems, size, AbsoluteLength, App, Background, BackgroundTag,
+    BorderStyle, Bounds, ContentMask, Corners, CornersRefinement, CursorStyle, DefiniteLength,
+    DevicePixels, Edges, EdgesRefinement, Font, FontFallbacks, FontFeatures, FontStyle, FontWeight,
+    GridLocation, Hsla, Length, Pixels, Point, PointRefinement, Rgba, SharedString, Size,
+    SizeRefinement, Styled, TextRun, Window,
 };
 use collections::HashSet;
 use refineable::Refineable;
@@ -248,6 +248,9 @@ pub struct Style {
     #[refineable]
     pub corner_radii: Corners<AbsoluteLength>,
 
+    /// Whether to use continuous (squircle) corner rounding instead of circular.
+    pub continuous_corners: bool,
+
     /// Box shadow of the element
     pub box_shadow: Vec<BoxShadow>,
 
@@ -314,6 +317,8 @@ pub struct BoxShadow {
     pub blur_radius: Pixels,
     /// How much should the shadow spread?
     pub spread_radius: Pixels,
+    /// Should the shadow render inside the element bounds?
+    pub inset: bool,
 }
 
 /// How to handle whitespace in text
@@ -346,6 +351,17 @@ pub enum TextAlign {
 
     /// Align the text to the right of the element
     Right,
+}
+
+/// A shadow effect applied to text, rendered by painting glyphs twice.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct TextShadow {
+    /// The color of the text shadow
+    pub color: Hsla,
+    /// How far the shadow is offset from the text
+    pub offset: Point<Pixels>,
+    /// The blur radius of the shadow (approximated via opacity reduction)
+    pub blur_radius: Pixels,
 }
 
 /// The properties that can be used to style text in GPUI
@@ -394,8 +410,14 @@ pub struct TextStyle {
     /// How the text should be aligned within the element
     pub text_align: TextAlign,
 
+    /// Additional spacing between characters (letter-spacing/tracking)
+    pub letter_spacing: Option<Pixels>,
+
     /// The number of lines to display before truncating the text
     pub line_clamp: Option<usize>,
+
+    /// A shadow effect rendered behind the text
+    pub text_shadow: Option<TextShadow>,
 }
 
 impl Default for TextStyle {
@@ -422,7 +444,9 @@ impl Default for TextStyle {
             white_space: WhiteSpace::Normal,
             text_overflow: None,
             text_align: TextAlign::default(),
+            letter_spacing: None,
             line_clamp: None,
+            text_shadow: None,
         }
     }
 }
@@ -647,14 +671,16 @@ impl Style {
                 None => Hsla::default(),
             };
             border_color.a = 0.;
-            window.paint_quad(quad(
+            let mut bg_quad = quad(
                 bounds,
                 corner_radii,
                 background_color.unwrap_or_default(),
                 Edges::default(),
                 border_color,
                 self.border_style,
-            ));
+            );
+            bg_quad.continuous_corners = self.continuous_corners;
+            window.paint_quad(bg_quad);
         }
 
         continuation(window, cx);
@@ -683,7 +709,7 @@ impl Style {
 
             let mut background = self.border_color.unwrap_or_default();
             background.a = 0.;
-            let quad = quad(
+            let mut quad = quad(
                 bounds,
                 corner_radii,
                 background,
@@ -691,6 +717,7 @@ impl Style {
                 self.border_color.unwrap_or_default(),
                 self.border_style,
             );
+            quad.continuous_corners = self.continuous_corners;
 
             window.with_content_mask(Some(ContentMask { bounds: top_bounds }), |window| {
                 window.paint_quad(quad.clone());
@@ -771,6 +798,7 @@ impl Default for Style {
             border_color: None,
             border_style: BorderStyle::default(),
             corner_radii: Corners::default(),
+            continuous_corners: false,
             box_shadow: Default::default(),
             text: TextStyleRefinement::default(),
             mouse_cursor: None,

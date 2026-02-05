@@ -28,6 +28,8 @@ float pick_corner_radius(float2 center_to_point, Corners_ScaledPixels corner_rad
 float quad_sdf(float2 point, Bounds_ScaledPixels bounds,
                Corners_ScaledPixels corner_radii);
 float quad_sdf_impl(float2 center_to_point, float corner_radius);
+float squircle_sdf(float2 point, Bounds_ScaledPixels bounds,
+                   Corners_ScaledPixels corner_radii);
 float gaussian(float x, float sigma);
 float2 erf(float2 x);
 float blur_along_x(float x, float y, float sigma, float corner,
@@ -178,24 +180,18 @@ fragment float4 quad_fragment(QuadFragmentInput input [[stage_in]],
     return background_color;
   }
 
-  // Signed distance of the point to the outside edge of the quad's border
-  float outer_sdf = quad_sdf_impl(corner_center_to_point, corner_radius);
+  float outer_sdf;
+  if (quad.continuous_corners == 1 && corner_radius > 0.0) {
+    outer_sdf = squircle_sdf(input.position.xy, quad.bounds, quad.corner_radii);
+  } else {
+    outer_sdf = quad_sdf_impl(corner_center_to_point, corner_radius);
+  }
 
-  // Approximate signed distance of the point to the inside edge of the quad's
-  // border. It is negative outside this edge (within the border), and
-  // positive inside.
-  //
-  // This is not always an accurate signed distance:
-  // * The rounded portions with varying border width use an approximation of
-  //   nearest-point-on-ellipse.
-  // * When it is quickly known to be outside the edge, -1.0 is used.
   float inner_sdf = 0.0;
   if (corner_center_to_point.x <= 0.0 || corner_center_to_point.y <= 0.0) {
-    // Fast paths for straight borders
     inner_sdf = -max(straight_border_inner_corner_to_point.x,
                      straight_border_inner_corner_to_point.y);
   } else if (is_beyond_inner_straight_border) {
-    // Fast path for points that must be outside the inner edge
     inner_sdf = -1.0;
   } else if (reduced_border.x == reduced_border.y) {
     // Fast path for circular inner edge.
@@ -536,6 +532,10 @@ fragment float4 shadow_fragment(ShadowFragmentInput input [[stage_in]],
                gaussian(y, shadow.blur_radius) * step;
       y += step;
     }
+  }
+
+  if (shadow.inset == 1) {
+    alpha = 1.0 - alpha;
   }
 
   return input.color * float4(1., 1., 1., alpha);
@@ -1074,6 +1074,19 @@ float quad_sdf_impl(float2 corner_center_to_point, float corner_radius) {
 
         return signed_distance_to_inset_quad - corner_radius;
     }
+}
+
+float squircle_sdf(float2 point, Bounds_ScaledPixels bounds,
+                   Corners_ScaledPixels corner_radii) {
+    float2 half_size = float2(bounds.size.width, bounds.size.height) / 2.0;
+    float2 center = float2(bounds.origin.x, bounds.origin.y) + half_size;
+    float2 p = fabs(point - center);
+    float corner_radius = pick_corner_radius(point - center, corner_radii);
+    float2 effective_half = half_size - corner_radius;
+    float2 q = max(float2(0.0), p - effective_half);
+    float n = 2.5;
+    float dist = pow(pow(q.x, n) + pow(q.y, n), 1.0 / n) - corner_radius;
+    return dist;
 }
 
 // A standard gaussian function, used for weighting samples

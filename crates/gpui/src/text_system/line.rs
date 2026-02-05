@@ -1,7 +1,7 @@
 use crate::{
     App, Bounds, Half, Hsla, LineLayout, Pixels, Point, Result, SharedString, StrikethroughStyle,
-    TextAlign, UnderlineStyle, Window, WrapBoundary, WrappedLineLayout, black, fill, point, px,
-    size,
+    TextAlign, TextShadow, UnderlineStyle, Window, WrapBoundary, WrappedLineLayout, black, fill,
+    point, px, size,
 };
 use derive_more::{Deref, DerefMut};
 use smallvec::SmallVec;
@@ -104,6 +104,40 @@ impl ShapedLine {
 
         Ok(())
     }
+
+    /// Paint a shadow behind the text by rendering glyphs with offset and shadow color.
+    pub fn paint_shadow(
+        &self,
+        origin: Point<Pixels>,
+        line_height: Pixels,
+        shadow: &TextShadow,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Result<()> {
+        let shadow_runs: SmallVec<[DecorationRun; 32]> = self
+            .decoration_runs
+            .iter()
+            .map(|run| DecorationRun {
+                len: run.len,
+                color: shadow.color,
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            })
+            .collect();
+        let shadow_origin = point(origin.x + shadow.offset.x, origin.y + shadow.offset.y);
+        paint_line(
+            shadow_origin,
+            &self.layout,
+            line_height,
+            TextAlign::default(),
+            None,
+            &shadow_runs,
+            &[],
+            window,
+            cx,
+        )
+    }
 }
 
 /// A line of text that has been shaped, decorated, and wrapped by the text layout system.
@@ -182,6 +216,46 @@ impl WrappedLine {
         )?;
 
         Ok(())
+    }
+
+    /// Paint a shadow behind the text by rendering glyphs with offset and shadow color.
+    pub fn paint_shadow(
+        &self,
+        origin: Point<Pixels>,
+        line_height: Pixels,
+        align: TextAlign,
+        bounds: Option<Bounds<Pixels>>,
+        shadow: &TextShadow,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Result<()> {
+        let align_width = match bounds {
+            Some(bounds) => Some(bounds.size.width),
+            None => self.layout.wrap_width,
+        };
+        let shadow_runs: SmallVec<[DecorationRun; 32]> = self
+            .decoration_runs
+            .iter()
+            .map(|run| DecorationRun {
+                len: run.len,
+                color: shadow.color,
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            })
+            .collect();
+        let shadow_origin = point(origin.x + shadow.offset.x, origin.y + shadow.offset.y);
+        paint_line(
+            shadow_origin,
+            &self.layout.unwrapped_layout,
+            line_height,
+            align,
+            align_width,
+            &shadow_runs,
+            &self.wrap_boundaries,
+            window,
+            cx,
+        )
     }
 }
 

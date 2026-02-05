@@ -2,9 +2,9 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use syn::{
-    Token, Visibility, braced,
+    braced,
     parse::{Parse, ParseStream, Result},
-    parse_macro_input,
+    parse_macro_input, Token, Visibility,
 };
 
 #[derive(Debug)]
@@ -416,6 +416,7 @@ pub fn box_shadow_style_methods(input: TokenStream) -> TokenStream {
                 offset: point(px(0.), px(1.)),
                 blur_radius: px(0.),
                 spread_radius: px(0.),
+                inset: false,
             }]);
             self
         }
@@ -431,6 +432,7 @@ pub fn box_shadow_style_methods(input: TokenStream) -> TokenStream {
                 offset: point(px(0.), px(1.)),
                 blur_radius: px(2.),
                 spread_radius: px(0.),
+                inset: false,
             }]);
             self
         }
@@ -447,12 +449,14 @@ pub fn box_shadow_style_methods(input: TokenStream) -> TokenStream {
                     offset: point(px(0.), px(1.)),
                     blur_radius: px(3.),
                     spread_radius: px(0.),
+                    inset: false,
                 },
                 BoxShadow {
                     color: hsla(0., 0., 0., 0.1),
                     offset: point(px(0.), px(1.)),
                     blur_radius: px(2.),
                     spread_radius: px(-1.),
+                    inset: false,
                 }
             ]);
             self
@@ -470,12 +474,14 @@ pub fn box_shadow_style_methods(input: TokenStream) -> TokenStream {
                     offset: point(px(0.), px(4.)),
                     blur_radius: px(6.),
                     spread_radius: px(-1.),
+                    inset: false,
                 },
                 BoxShadow {
                     color: hsla(0., 0., 0., 0.1),
                     offset: point(px(0.), px(2.)),
                     blur_radius: px(4.),
                     spread_radius: px(-2.),
+                    inset: false,
                 }
             ]);
             self
@@ -493,12 +499,14 @@ pub fn box_shadow_style_methods(input: TokenStream) -> TokenStream {
                     offset: point(px(0.), px(10.)),
                     blur_radius: px(15.),
                     spread_radius: px(-3.),
+                    inset: false,
                 },
                 BoxShadow {
                     color: hsla(0., 0., 0., 0.1),
                     offset: point(px(0.), px(4.)),
                     blur_radius: px(6.),
                     spread_radius: px(-4.),
+                    inset: false,
                 }
             ]);
             self
@@ -516,12 +524,14 @@ pub fn box_shadow_style_methods(input: TokenStream) -> TokenStream {
                     offset: point(px(0.), px(20.)),
                     blur_radius: px(25.),
                     spread_radius: px(-5.),
+                    inset: false,
                 },
                 BoxShadow {
                     color: hsla(0., 0., 0., 0.1),
                     offset: point(px(0.), px(8.)),
                     blur_radius: px(10.),
                     spread_radius: px(-6.),
+                    inset: false,
                 }
             ]);
             self
@@ -538,6 +548,32 @@ pub fn box_shadow_style_methods(input: TokenStream) -> TokenStream {
                 offset: point(px(0.), px(25.)),
                 blur_radius: px(50.),
                 spread_radius: px(-12.),
+                inset: false,
+            }]);
+            self
+        }
+
+        /// Sets an inset box shadow on the element.
+        #visibility fn shadow_inset(mut self, shadows: std::vec::Vec<gpui::BoxShadow>) -> Self {
+            let inset_shadows: std::vec::Vec<gpui::BoxShadow> = shadows.into_iter().map(|mut s| {
+                s.inset = true;
+                s
+            }).collect();
+            self.style().box_shadow = Some(inset_shadows);
+            self
+        }
+
+        /// Convenience method for a single inset shadow.
+        #visibility fn inset_shadow(mut self, color: gpui::Hsla, blur: gpui::Pixels, spread: gpui::Pixels) -> Self {
+            use gpui::{BoxShadow, point, px};
+            use std::vec;
+
+            self.style().box_shadow = Some(vec![BoxShadow {
+                color,
+                offset: point(px(0.), px(0.)),
+                blur_radius: blur,
+                spread_radius: spread,
+                inset: true,
             }]);
             self
         }

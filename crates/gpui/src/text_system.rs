@@ -367,6 +367,18 @@ impl WindowTextSystem {
         runs: &[TextRun],
         force_width: Option<Pixels>,
     ) -> ShapedLine {
+        self.shape_line_with_spacing(text, font_size, runs, force_width, None)
+    }
+
+    /// Shape a line of text with optional letter spacing applied to glyph positions.
+    pub fn shape_line_with_spacing(
+        &self,
+        text: SharedString,
+        font_size: Pixels,
+        runs: &[TextRun],
+        force_width: Option<Pixels>,
+        letter_spacing: Option<Pixels>,
+    ) -> ShapedLine {
         debug_assert!(
             text.find('\n').is_none(),
             "text argument should not contain newlines"
@@ -392,7 +404,7 @@ impl WindowTextSystem {
             });
         }
 
-        let layout = self.layout_line(&text, font_size, runs, force_width);
+        let layout = self.layout_line_with_spacing(&text, font_size, runs, force_width, letter_spacing);
 
         ShapedLine {
             layout,
@@ -539,6 +551,18 @@ impl WindowTextSystem {
         runs: &[TextRun],
         force_width: Option<Pixels>,
     ) -> Arc<LineLayout> {
+        self.layout_line_with_spacing(text, font_size, runs, force_width, None)
+    }
+
+    /// Layout a line of text with optional letter spacing applied to glyph positions.
+    pub fn layout_line_with_spacing(
+        &self,
+        text: &str,
+        font_size: Pixels,
+        runs: &[TextRun],
+        force_width: Option<Pixels>,
+        letter_spacing: Option<Pixels>,
+    ) -> Arc<LineLayout> {
         let mut last_run = None::<&TextRun>;
         let mut last_font: Option<FontId> = None;
         let mut font_runs = self.font_runs_pool.lock().pop().unwrap_or_default();
@@ -549,8 +573,6 @@ impl WindowTextSystem {
                 && last_run.color == run.color
                 && last_run.underline == run.underline
                 && last_run.strikethrough == run.strikethrough
-            // we do not consider differing background color relevant, as it does not affect glyphs
-            // && last_run.background_color == run.background_color
             {
                 false
             } else {
@@ -573,11 +595,12 @@ impl WindowTextSystem {
             }
         }
 
-        let layout = self.line_layout_cache.layout_line(
+        let layout = self.line_layout_cache.layout_line_with_spacing(
             &SharedString::new(text),
             font_size,
             &font_runs,
             force_width,
+            letter_spacing,
         );
 
         self.font_runs_pool.lock().push(font_runs);

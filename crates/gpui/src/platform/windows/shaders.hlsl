@@ -302,6 +302,18 @@ float quad_sdf(float2 pt, Bounds bounds, Corners corner_radii) {
     return quad_sdf_impl(corner_center_to_point, corner_radius);
 }
 
+float squircle_sdf(float2 point, Bounds bounds, Corners corner_radii) {
+    float2 half_size = bounds.size / 2.0;
+    float2 center = bounds.origin + half_size;
+    float2 p = abs(point - center);
+    float corner_radius = pick_corner_radius(point - center, corner_radii);
+    float2 effective_half = half_size - corner_radius;
+    float2 q = max(float2(0.0, 0.0), p - effective_half);
+    float n = 2.5;
+    float dist = pow(pow(q.x, n) + pow(q.y, n), 1.0 / n) - corner_radius;
+    return dist;
+}
+
 GradientColor prepare_gradient_color(uint tag, uint color_space, Hsla solid, LinearColorStop colors[2]) {
     GradientColor output;
     if (tag == 0 || tag == 2) {
@@ -468,6 +480,7 @@ struct Quad {
     Hsla border_color;
     Corners corner_radii;
     Edges border_widths;
+    uint continuous_corners;
 };
 
 struct QuadVertexOutput {
@@ -594,27 +607,20 @@ float4 quad_fragment(QuadFragmentInput input): SV_Target {
         return background_color;
     }
 
-    // Signed distance of the point to the outside edge of the quad's border
-    float outer_sdf = quad_sdf_impl(corner_center_to_point, corner_radius);
+    float outer_sdf;
+    if (quad.continuous_corners == 1 && corner_radius > 0.0) {
+        outer_sdf = squircle_sdf(input.position.xy, quad.bounds, quad.corner_radii);
+    } else {
+        outer_sdf = quad_sdf_impl(corner_center_to_point, corner_radius);
+    }
 
-    // Approximate signed distance of the point to the inside edge of the quad's
-    // border. It is negative outside this edge (within the border), and
-    // positive inside.
-    //
-    // This is not always an accurate signed distance:
-    // * The rounded portions with varying border width use an approximation of
-    //   nearest-point-on-ellipse.
-    // * When it is quickly known to be outside the edge, -1.0 is used.
     float inner_sdf = 0.0;
     if (corner_center_to_point.x <= 0.0 || corner_center_to_point.y <= 0.0) {
-        // Fast paths for straight borders
         inner_sdf = -max(straight_border_inner_corner_to_point.x,
                         straight_border_inner_corner_to_point.y);
     } else if (is_beyond_inner_straight_border) {
-        // Fast path for points that must be outside the inner edge
         inner_sdf = -1.0;
     } else if (reduced_border.x == reduced_border.y) {
-        // Fast path for circular inner edge.
         inner_sdf = -(outer_sdf + reduced_border.x);
     } else {
         float2 ellipse_radii = max(float2(0.0, 0.0), float2(corner_radius, corner_radius) - reduced_border);
@@ -820,6 +826,7 @@ struct Shadow {
     Corners corner_radii;
     Bounds content_mask;
     Hsla color;
+    uint inset;
 };
 
 struct ShadowVertexOutput {
@@ -882,6 +889,10 @@ float4 shadow_fragment(ShadowFragmentInput input): SV_TARGET {
                             corner_radius, half_size) *
                 gaussian(y, shadow.blur_radius) * step;
         y += step;
+    }
+
+    if (shadow.inset == 1) {
+        alpha = 1.0 - alpha;
     }
 
     return input.color * float4(1., 1., 1., alpha);

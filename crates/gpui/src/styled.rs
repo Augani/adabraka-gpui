@@ -1,8 +1,9 @@
 use crate::{
-    self as gpui, AbsoluteLength, AlignContent, AlignItems, BorderStyle, CursorStyle,
-    DefiniteLength, Display, Fill, FlexDirection, FlexWrap, Font, FontStyle, FontWeight,
-    GridPlacement, Hsla, JustifyContent, Length, SharedString, StrikethroughStyle, StyleRefinement,
-    TextAlign, TextOverflow, TextStyleRefinement, UnderlineStyle, WhiteSpace, px, relative, rems,
+    self as gpui, point, px, relative, rems, AbsoluteLength, AlignContent, AlignItems, BorderStyle,
+    CursorStyle, DefiniteLength, Display, Fill, FlexDirection, FlexWrap, Font, FontStyle,
+    FontWeight, GridPlacement, Hsla, JustifyContent, Length, Pixels, SharedString,
+    StrikethroughStyle, StyleRefinement, TextAlign, TextOverflow, TextShadow, TextStyleRefinement,
+    UnderlineStyle, WhiteSpace,
 };
 pub use gpui_macros::{
     border_style_methods, box_shadow_style_methods, cursor_style_methods, margin_style_methods,
@@ -123,6 +124,111 @@ pub trait Styled: Sized {
         let mut text_style = self.text_style().get_or_insert_with(Default::default);
         text_style.line_clamp = Some(lines);
         self.overflow_hidden()
+    }
+
+    /// Sets the letter spacing (tracking) for text.
+    /// [Docs](https://tailwindcss.com/docs/letter-spacing)
+    fn letter_spacing(mut self, spacing: impl Into<Pixels>) -> Self {
+        self.text_style()
+            .get_or_insert_with(Default::default)
+            .letter_spacing = Some(spacing.into());
+        self
+    }
+
+    /// Sets letter spacing to -0.5px (tighter tracking).
+    fn tracking_tighter(self) -> Self {
+        self.letter_spacing(px(-0.5))
+    }
+
+    /// Sets letter spacing to -0.25px (tight tracking).
+    fn tracking_tight(self) -> Self {
+        self.letter_spacing(px(-0.25))
+    }
+
+    /// Resets letter spacing to 0px (normal tracking).
+    fn tracking_normal(self) -> Self {
+        self.letter_spacing(px(0.0))
+    }
+
+    /// Sets letter spacing to 0.5px (wide tracking).
+    fn tracking_wide(self) -> Self {
+        self.letter_spacing(px(0.5))
+    }
+
+    /// Sets letter spacing to 1.0px (wider tracking).
+    fn tracking_wider(self) -> Self {
+        self.letter_spacing(px(1.0))
+    }
+
+    /// Sets letter spacing to 2.0px (widest tracking).
+    fn tracking_widest(self) -> Self {
+        self.letter_spacing(px(2.0))
+    }
+
+    /// Enables continuous (squircle) corner rounding instead of circular.
+    /// This produces smooth Apple-style corners matching SwiftUI's continuous corner style.
+    fn continuous_corners(mut self) -> Self {
+        self.style().continuous_corners = Some(true);
+        self
+    }
+
+    /// Applies a text shadow with custom parameters.
+    fn text_shadow(mut self, shadow: TextShadow) -> Self {
+        self.text_style()
+            .get_or_insert_with(Default::default)
+            .text_shadow = Some(shadow);
+        self
+    }
+
+    /// Applies a small text shadow (1px offset, 2px blur).
+    fn text_shadow_sm(mut self) -> Self {
+        self.text_style()
+            .get_or_insert_with(Default::default)
+            .text_shadow = Some(TextShadow {
+            color: Hsla {
+                h: 0.0,
+                s: 0.0,
+                l: 0.0,
+                a: 0.2,
+            },
+            offset: point(px(0.0), px(1.0)),
+            blur_radius: px(2.0),
+        });
+        self
+    }
+
+    /// Applies a medium text shadow (2px offset, 4px blur).
+    fn text_shadow_md(mut self) -> Self {
+        self.text_style()
+            .get_or_insert_with(Default::default)
+            .text_shadow = Some(TextShadow {
+            color: Hsla {
+                h: 0.0,
+                s: 0.0,
+                l: 0.0,
+                a: 0.25,
+            },
+            offset: point(px(0.0), px(2.0)),
+            blur_radius: px(4.0),
+        });
+        self
+    }
+
+    /// Applies a large text shadow (3px offset, 6px blur).
+    fn text_shadow_lg(mut self) -> Self {
+        self.text_style()
+            .get_or_insert_with(Default::default)
+            .text_shadow = Some(TextShadow {
+            color: Hsla {
+                h: 0.0,
+                s: 0.0,
+                l: 0.0,
+                a: 0.3,
+            },
+            offset: point(px(0.0), px(3.0)),
+            blur_radius: px(6.0),
+        });
+        self
     }
 
     /// Sets the flex direction of the element to `column`.
