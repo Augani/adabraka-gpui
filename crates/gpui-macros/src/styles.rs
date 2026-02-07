@@ -393,7 +393,7 @@ pub fn box_shadow_style_methods(input: TokenStream) -> TokenStream {
     let output = quote! {
         /// Sets the box shadow of the element.
         /// [Docs](https://tailwindcss.com/docs/box-shadow)
-        #visibility fn shadow(mut self, shadows: std::vec::Vec<gpui::BoxShadow>) -> Self {
+        #visibility fn shadow(mut self, shadows: smallvec::SmallVec<[gpui::BoxShadow; 1]>) -> Self {
             self.style().box_shadow = Some(shadows);
             self
         }
@@ -409,9 +409,8 @@ pub fn box_shadow_style_methods(input: TokenStream) -> TokenStream {
         /// [Docs](https://tailwindcss.com/docs/box-shadow)
         #visibility fn shadow_2xs(mut self) -> Self {
             use gpui::{BoxShadow, hsla, point, px};
-            use std::vec;
 
-            self.style().box_shadow = Some(vec![BoxShadow {
+            self.style().box_shadow = Some(smallvec::smallvec![BoxShadow {
                 color: hsla(0., 0., 0., 0.05),
                 offset: point(px(0.), px(1.)),
                 blur_radius: px(0.),
@@ -425,9 +424,8 @@ pub fn box_shadow_style_methods(input: TokenStream) -> TokenStream {
         /// [Docs](https://tailwindcss.com/docs/box-shadow)
         #visibility fn shadow_xs(mut self) -> Self {
             use gpui::{BoxShadow, hsla, point, px};
-            use std::vec;
 
-            self.style().box_shadow = Some(vec![BoxShadow {
+            self.style().box_shadow = Some(smallvec::smallvec![BoxShadow {
                 color: hsla(0., 0., 0., 0.05),
                 offset: point(px(0.), px(1.)),
                 blur_radius: px(2.),
@@ -441,9 +439,8 @@ pub fn box_shadow_style_methods(input: TokenStream) -> TokenStream {
         /// [Docs](https://tailwindcss.com/docs/box-shadow)
         #visibility fn shadow_sm(mut self) -> Self {
             use gpui::{BoxShadow, hsla, point, px};
-            use std::vec;
 
-            self.style().box_shadow = Some(vec![
+            self.style().box_shadow = Some(smallvec::smallvec![
                 BoxShadow {
                     color: hsla(0., 0., 0., 0.1),
                     offset: point(px(0.), px(1.)),
@@ -466,9 +463,8 @@ pub fn box_shadow_style_methods(input: TokenStream) -> TokenStream {
         /// [Docs](https://tailwindcss.com/docs/box-shadow)
         #visibility fn shadow_md(mut self) -> Self {
             use gpui::{BoxShadow, hsla, point, px};
-            use std::vec;
 
-            self.style().box_shadow = Some(vec![
+            self.style().box_shadow = Some(smallvec::smallvec![
                 BoxShadow {
                     color: hsla(0., 0., 0., 0.1),
                     offset: point(px(0.), px(4.)),
@@ -491,9 +487,8 @@ pub fn box_shadow_style_methods(input: TokenStream) -> TokenStream {
         /// [Docs](https://tailwindcss.com/docs/box-shadow)
         #visibility fn shadow_lg(mut self) -> Self {
             use gpui::{BoxShadow, hsla, point, px};
-            use std::vec;
 
-            self.style().box_shadow = Some(vec![
+            self.style().box_shadow = Some(smallvec::smallvec![
                 BoxShadow {
                     color: hsla(0., 0., 0., 0.1),
                     offset: point(px(0.), px(10.)),
@@ -516,9 +511,8 @@ pub fn box_shadow_style_methods(input: TokenStream) -> TokenStream {
         /// [Docs](https://tailwindcss.com/docs/box-shadow)
         #visibility fn shadow_xl(mut self) -> Self {
             use gpui::{BoxShadow, hsla, point, px};
-            use std::vec;
 
-            self.style().box_shadow = Some(vec![
+            self.style().box_shadow = Some(smallvec::smallvec![
                 BoxShadow {
                     color: hsla(0., 0., 0., 0.1),
                     offset: point(px(0.), px(20.)),
@@ -541,9 +535,8 @@ pub fn box_shadow_style_methods(input: TokenStream) -> TokenStream {
         /// [Docs](https://tailwindcss.com/docs/box-shadow)
         #visibility fn shadow_2xl(mut self) -> Self {
             use gpui::{BoxShadow, hsla, point, px};
-            use std::vec;
 
-            self.style().box_shadow = Some(vec![BoxShadow {
+            self.style().box_shadow = Some(smallvec::smallvec![BoxShadow {
                 color: hsla(0., 0., 0., 0.25),
                 offset: point(px(0.), px(25.)),
                 blur_radius: px(50.),
@@ -554,8 +547,8 @@ pub fn box_shadow_style_methods(input: TokenStream) -> TokenStream {
         }
 
         /// Sets an inset box shadow on the element.
-        #visibility fn shadow_inset(mut self, shadows: std::vec::Vec<gpui::BoxShadow>) -> Self {
-            let inset_shadows: std::vec::Vec<gpui::BoxShadow> = shadows.into_iter().map(|mut s| {
+        #visibility fn shadow_inset(mut self, shadows: smallvec::SmallVec<[gpui::BoxShadow; 1]>) -> Self {
+            let inset_shadows: smallvec::SmallVec<[gpui::BoxShadow; 1]> = shadows.into_iter().map(|mut s| {
                 s.inset = true;
                 s
             }).collect();
@@ -566,9 +559,8 @@ pub fn box_shadow_style_methods(input: TokenStream) -> TokenStream {
         /// Convenience method for a single inset shadow.
         #visibility fn inset_shadow(mut self, color: gpui::Hsla, blur: gpui::Pixels, spread: gpui::Pixels) -> Self {
             use gpui::{BoxShadow, point, px};
-            use std::vec;
 
-            self.style().box_shadow = Some(vec![BoxShadow {
+            self.style().box_shadow = Some(smallvec::smallvec![BoxShadow {
                 color,
                 offset: point(px(0.), px(0.)),
                 blur_radius: blur,

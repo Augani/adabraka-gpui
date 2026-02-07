@@ -492,6 +492,7 @@ struct Quad {
     corner_radii: Corners,
     border_widths: Edges,
     continuous_corners: u32,
+    transform: TransformationMatrix,
 }
 var<storage, read> b_quads: array<Quad>;
 
@@ -512,7 +513,7 @@ fn vs_quad(@builtin(vertex_index) vertex_id: u32, @builtin(instance_index) insta
     let quad = b_quads[instance_id];
 
     var out = QuadVarying();
-    out.position = to_device_position(unit_vertex, quad.bounds);
+    out.position = to_device_position_transformed(unit_vertex, quad.bounds, quad.transform);
 
     let gradient = prepare_gradient_color(
         quad.background.tag,
@@ -525,7 +526,7 @@ fn vs_quad(@builtin(vertex_index) vertex_id: u32, @builtin(instance_index) insta
     out.background_color1 = gradient.color1;
     out.border_color = hsla_to_rgba(quad.border_color);
     out.quad_id = instance_id;
-    out.clip_distances = distance_from_clip_rect(unit_vertex, quad.bounds, quad.content_mask);
+    out.clip_distances = distance_from_clip_rect_transformed(unit_vertex, quad.bounds, quad.content_mask, quad.transform);
     return out;
 }
 

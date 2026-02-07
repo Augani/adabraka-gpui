@@ -483,6 +483,7 @@ impl LineLayoutCache {
             runs,
             wrap_width,
             force_width: None,
+            letter_spacing: None,
         } as &dyn AsCacheKeyRef;
 
         let current_frame = self.current_frame.upgradable_read();
@@ -518,6 +519,7 @@ impl LineLayoutCache {
                 runs: SmallVec::from(runs),
                 wrap_width,
                 force_width: None,
+                letter_spacing: None,
             });
 
             let mut current_frame = self.current_frame.write();
@@ -562,22 +564,19 @@ impl LineLayoutCache {
             runs,
             wrap_width: None,
             force_width,
+            letter_spacing,
         } as &dyn AsCacheKeyRef;
 
         let current_frame = self.current_frame.upgradable_read();
-        if letter_spacing.is_none() {
-            if let Some(layout) = current_frame.lines.get(key) {
-                return layout.clone();
-            }
+        if let Some(layout) = current_frame.lines.get(key) {
+            return layout.clone();
         }
 
         let mut current_frame = RwLockUpgradableReadGuard::upgrade(current_frame);
-        if letter_spacing.is_none() {
-            if let Some((key, layout)) = self.previous_frame.lock().lines.remove_entry(key) {
-                current_frame.lines.insert(key.clone(), layout.clone());
-                current_frame.used_lines.push(key);
-                return layout;
-            }
+        if let Some((key, layout)) = self.previous_frame.lock().lines.remove_entry(key) {
+            current_frame.lines.insert(key.clone(), layout.clone());
+            current_frame.used_lines.push(key);
+            return layout;
         }
 
         let text = SharedString::from(text);
@@ -611,16 +610,13 @@ impl LineLayoutCache {
             }
         }
 
-        if letter_spacing.is_some() {
-            return Arc::new(layout);
-        }
-
         let key = Arc::new(CacheKey {
             text,
             font_size,
             runs: SmallVec::from(runs),
             wrap_width: None,
             force_width,
+            letter_spacing,
         });
         let layout = Arc::new(layout);
         current_frame.lines.insert(key.clone(), layout.clone());
@@ -647,6 +643,7 @@ struct CacheKey {
     runs: SmallVec<[FontRun; 1]>,
     wrap_width: Option<Pixels>,
     force_width: Option<Pixels>,
+    letter_spacing: Option<Pixels>,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -656,6 +653,7 @@ struct CacheKeyRef<'a> {
     runs: &'a [FontRun],
     wrap_width: Option<Pixels>,
     force_width: Option<Pixels>,
+    letter_spacing: Option<Pixels>,
 }
 
 impl PartialEq for dyn AsCacheKeyRef + '_ {
@@ -680,6 +678,7 @@ impl AsCacheKeyRef for CacheKey {
             runs: self.runs.as_slice(),
             wrap_width: self.wrap_width,
             force_width: self.force_width,
+            letter_spacing: self.letter_spacing,
         }
     }
 }

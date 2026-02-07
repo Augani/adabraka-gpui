@@ -1,8 +1,8 @@
 use super::metal_atlas::MetalAtlas;
 use crate::{
-    AtlasTextureId, Background, Bounds, ContentMask, DevicePixels, MonochromeSprite, PaintSurface,
-    Path, Point, PolychromeSprite, PrimitiveBatch, Quad, ScaledPixels, Scene, Shadow, Size,
-    Surface, Underline, point, size,
+    point, size, AtlasTextureId, Background, Bounds, ContentMask, DevicePixels, MonochromeSprite,
+    PaintSurface, Path, Point, PolychromeSprite, PrimitiveBatch, Quad, ScaledPixels, Scene, Shadow,
+    Size, Surface, Underline,
 };
 use anyhow::Result;
 use block::ConcreteBlock;
@@ -367,6 +367,8 @@ impl MetalRenderer {
             return;
         };
 
+        self.ensure_buffer_size(scene);
+
         loop {
             let mut instance_buffer = self.instance_buffer_pool.lock().acquire(&self.device);
 
@@ -413,6 +415,34 @@ impl MetalRenderer {
                     );
                 }
             }
+        }
+    }
+
+    fn ensure_buffer_size(&self, scene: &Scene) {
+        const ALIGN: usize = 256;
+        let align_up = |size: usize| size.div_ceil(ALIGN) * ALIGN;
+
+        let total_path_vertices: usize = scene.paths.iter().map(|p| p.vertices.len()).sum();
+
+        let estimated_bytes = align_up(mem::size_of::<Shadow>() * scene.shadows.len())
+            + align_up(mem::size_of::<Quad>() * scene.quads.len())
+            + align_up(mem::size_of::<PathRasterizationVertex>() * total_path_vertices)
+            + align_up(mem::size_of::<PathSprite>() * scene.paths.len())
+            + align_up(mem::size_of::<Underline>() * scene.underlines.len())
+            + align_up(mem::size_of::<MonochromeSprite>() * scene.monochrome_sprites.len())
+            + align_up(mem::size_of::<PolychromeSprite>() * scene.polychrome_sprites.len())
+            + align_up(mem::size_of::<SurfaceBounds>()) * scene.surfaces.len();
+
+        let required = estimated_bytes + estimated_bytes / 5;
+
+        let mut pool = self.instance_buffer_pool.lock();
+        if pool.buffer_size < required {
+            let mut new_size = pool.buffer_size;
+            while new_size < required {
+                new_size *= 2;
+            }
+            new_size = new_size.min(256 * 1024 * 1024);
+            pool.reset(new_size);
         }
     }
 

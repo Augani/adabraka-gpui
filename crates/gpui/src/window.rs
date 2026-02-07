@@ -657,7 +657,7 @@ pub(crate) struct DeferredDraw {
     priority: usize,
     parent_node: DispatchNodeId,
     element_id_stack: SmallVec<[ElementId; 32]>,
-    text_style_stack: Vec<TextStyleRefinement>,
+    text_style_stack: SmallVec<[TextStyleRefinement; 4]>,
     element: Option<AnyElement>,
     absolute_offset: Point<Pixels>,
     prepaint_range: Range<PrepaintStateIndex>,
@@ -834,13 +834,13 @@ pub struct Window {
     layout_engine: Option<TaffyLayoutEngine>,
     pub(crate) root: Option<AnyView>,
     pub(crate) element_id_stack: SmallVec<[ElementId; 32]>,
-    pub(crate) text_style_stack: Vec<TextStyleRefinement>,
-    pub(crate) rendered_entity_stack: Vec<EntityId>,
-    pub(crate) element_offset_stack: Vec<Point<Pixels>>,
+    pub(crate) text_style_stack: SmallVec<[TextStyleRefinement; 4]>,
+    pub(crate) rendered_entity_stack: SmallVec<[EntityId; 16]>,
+    pub(crate) element_offset_stack: SmallVec<[Point<Pixels>; 16]>,
     pub(crate) element_opacity: f32,
-    pub(crate) content_mask_stack: Vec<ContentMask<Pixels>>,
+    pub(crate) content_mask_stack: SmallVec<[ContentMask<Pixels>; 16]>,
     pub(crate) requested_autoscroll: Option<Bounds<Pixels>>,
-    pub(crate) image_cache_stack: Vec<AnyImageCache>,
+    pub(crate) image_cache_stack: SmallVec<[AnyImageCache; 4]>,
     pub(crate) rendered_frame: Frame,
     pub(crate) next_frame: Frame,
     next_hitbox_id: HitboxId,
@@ -1218,10 +1218,10 @@ impl Window {
             layout_engine: Some(TaffyLayoutEngine::new()),
             root: None,
             element_id_stack: SmallVec::default(),
-            text_style_stack: Vec::new(),
-            rendered_entity_stack: Vec::new(),
-            element_offset_stack: Vec::new(),
-            content_mask_stack: Vec::new(),
+            text_style_stack: SmallVec::new(),
+            rendered_entity_stack: SmallVec::new(),
+            element_offset_stack: SmallVec::new(),
+            content_mask_stack: SmallVec::new(),
             element_opacity: 1.0,
             requested_autoscroll: None,
             rendered_frame: Frame::new(DispatchTree::new(cx.keymap.clone(), cx.actions.clone())),
@@ -1255,7 +1255,7 @@ impl Window {
             pending_input_observers: SubscriberSet::new(),
             prompt: None,
             client_inset: None,
-            image_cache_stack: Vec::new(),
+            image_cache_stack: SmallVec::new(),
             #[cfg(any(feature = "inspector", debug_assertions))]
             inspector: None,
         })
@@ -2863,6 +2863,7 @@ impl Window {
             border_widths: quad.border_widths.scale(scale_factor),
             border_style: quad.border_style,
             continuous_corners: if quad.continuous_corners { 1 } else { 0 },
+            transform: quad.transform,
         });
     }
 
@@ -5036,6 +5037,8 @@ pub struct PaintQuad {
     pub border_style: BorderStyle,
     /// Whether to use continuous (squircle) corner rounding.
     pub continuous_corners: bool,
+    /// The 2D affine transform applied to this quad.
+    pub transform: TransformationMatrix,
 }
 
 impl PaintQuad {
@@ -5089,6 +5092,7 @@ pub fn quad(
         border_color: border_color.into(),
         border_style,
         continuous_corners: false,
+        transform: TransformationMatrix::unit(),
     }
 }
 
@@ -5102,6 +5106,7 @@ pub fn fill(bounds: impl Into<Bounds<Pixels>>, background: impl Into<Background>
         border_color: transparent_black(),
         border_style: BorderStyle::default(),
         continuous_corners: false,
+        transform: TransformationMatrix::unit(),
     }
 }
 
@@ -5119,5 +5124,6 @@ pub fn outline(
         border_color: border_color.into(),
         border_style,
         continuous_corners: false,
+        transform: TransformationMatrix::unit(),
     }
 }

@@ -753,6 +753,31 @@ pub trait Styled: Sized {
         self
     }
 
+    /// Sets clockwise rotation in degrees.
+    fn rotate(mut self, angle_degrees: f32) -> Self {
+        self.style().rotate = Some(angle_degrees.to_radians());
+        self
+    }
+
+    /// Sets uniform scale factor.
+    fn scale(mut self, factor: f32) -> Self {
+        self.style().scale = Some(point(factor, factor));
+        self
+    }
+
+    /// Sets non-uniform scale factors for x and y axes.
+    fn scale_xy(mut self, x: f32, y: f32) -> Self {
+        self.style().scale = Some(point(x, y));
+        self
+    }
+
+    /// Sets the transform origin as a fraction of element size (0.0-1.0).
+    /// Default is center (0.5, 0.5).
+    fn transform_origin(mut self, x: f32, y: f32) -> Self {
+        self.style().transform_origin = Some(point(x, y));
+        self
+    }
+
     /// Sets the grid columns of this element.
     fn grid_cols(mut self, cols: u16) -> Self {
         self.style().grid_cols = Some(cols);

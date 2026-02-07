@@ -325,7 +325,7 @@ default-features = false
 
 [dependencies.schemars]
 version = "1.0"
-features = ["indexmap2"]
+features = ["indexmap2", "smallvec1"]
 
 [dependencies.seahash]
 version = "4.1"
@@ -354,7 +354,7 @@ version = "1.0.6"
 
 [dependencies.smallvec]
 version = "1.6"
-features = ["union"]
+features = ["union", "serde"]
 
 [dependencies.smol]
 version = "2.0"

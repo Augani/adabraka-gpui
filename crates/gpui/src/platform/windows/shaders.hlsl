@@ -481,6 +481,7 @@ struct Quad {
     Corners corner_radii;
     Edges border_widths;
     uint continuous_corners;
+    TransformationMatrix transform;
 };
 
 struct QuadVertexOutput {
@@ -507,7 +508,7 @@ StructuredBuffer<Quad> quads: register(t1);
 QuadVertexOutput quad_vertex(uint vertex_id: SV_VertexID, uint quad_id: SV_InstanceID) {
     float2 unit_vertex = float2(float(vertex_id & 1u), 0.5 * float(vertex_id & 2u));
     Quad quad = quads[quad_id];
-    float4 device_position = to_device_position(unit_vertex, quad.bounds);
+    float4 device_position = to_device_position_transformed(unit_vertex, quad.bounds, quad.transform);
 
     GradientColor gradient = prepare_gradient_color(
         quad.background.tag,
@@ -515,7 +516,7 @@ QuadVertexOutput quad_vertex(uint vertex_id: SV_VertexID, uint quad_id: SV_Insta
         quad.background.solid,
         quad.background.colors
     );
-    float4 clip_distance = distance_from_clip_rect(unit_vertex, quad.bounds, quad.content_mask);
+    float4 clip_distance = distance_from_clip_rect_transformed(unit_vertex, quad.bounds, quad.content_mask, quad.transform);
     float4 border_color = hsla_to_rgba(quad.border_color);
 
     QuadVertexOutput output;
