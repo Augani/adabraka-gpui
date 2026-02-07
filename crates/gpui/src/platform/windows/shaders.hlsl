@@ -522,6 +522,7 @@ struct Quad {
     Edges border_widths;
     uint continuous_corners;
     TransformationMatrix transform;
+    uint blend_mode;
 };
 
 struct QuadVertexOutput {
@@ -534,6 +535,7 @@ struct QuadVertexOutput {
     nointerpolation float4 background_color2: COLOR4;
     nointerpolation float4 background_color3: COLOR5;
     float4 clip_distance: SV_ClipDistance;
+    nointerpolation uint blend_mode: TEXCOORD1;
 };
 
 struct QuadFragmentInput {
@@ -545,6 +547,7 @@ struct QuadFragmentInput {
     nointerpolation float4 background_color1: COLOR3;
     nointerpolation float4 background_color2: COLOR4;
     nointerpolation float4 background_color3: COLOR5;
+    nointerpolation uint blend_mode: TEXCOORD1;
 };
 
 StructuredBuffer<Quad> quads: register(t1);
@@ -574,7 +577,26 @@ QuadVertexOutput quad_vertex(uint vertex_id: SV_VertexID, uint quad_id: SV_Insta
     output.background_color2 = gradient.color2;
     output.background_color3 = gradient.color3;
     output.clip_distance = clip_distance;
+    output.blend_mode = quad.blend_mode;
     return output;
+}
+
+float4 apply_blend_mode(float4 src, uint mode) {
+    switch (mode) {
+        case 0u: return src;
+        case 1u: return float4(src.rgb * src.rgb, src.a);
+        case 2u: return float4(1.0 - (1.0 - src.rgb) * (1.0 - src.rgb), src.a);
+        case 3u: {
+            float3 mid = float3(0.5, 0.5, 0.5);
+            float3 r = (src.rgb < float3(0.5, 0.5, 0.5))
+                ? 2.0 * src.rgb * mid
+                : 1.0 - 2.0 * (1.0 - src.rgb) * (1.0 - mid);
+            return float4(r, src.a);
+        }
+        case 4u: return float4(src.rgb * src.rgb + 2.0 * src.rgb * (1.0 - src.rgb), src.a);
+        case 5u: return float4(abs(src.rgb - 0.5), src.a);
+        default: return src;
+    }
 }
 
 float4 quad_fragment(QuadFragmentInput input): SV_Target {
@@ -582,6 +604,7 @@ float4 quad_fragment(QuadFragmentInput input): SV_Target {
     float4 background_color = gradient_color(quad.background, input.position.xy, quad.bounds,
     input.background_solid, input.background_color0, input.background_color1,
     input.background_color2, input.background_color3);
+    background_color = apply_blend_mode(background_color, input.blend_mode);
 
     bool unrounded = quad.corner_radii.top_left == 0.0 &&
         quad.corner_radii.top_right == 0.0 &&

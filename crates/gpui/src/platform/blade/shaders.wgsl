@@ -536,6 +536,7 @@ struct Quad {
     border_widths: Edges,
     continuous_corners: u32,
     transform: TransformationMatrix,
+    blend_mode: u32,
 }
 var<storage, read> b_quads: array<Quad>;
 
@@ -550,6 +551,7 @@ struct QuadVarying {
     @location(5) @interpolate(flat) background_color1: vec4<f32>,
     @location(6) @interpolate(flat) background_color2: vec4<f32>,
     @location(7) @interpolate(flat) background_color3: vec4<f32>,
+    @location(8) @interpolate(flat) blend_mode: u32,
 }
 
 @vertex
@@ -574,8 +576,37 @@ fn vs_quad(@builtin(vertex_index) vertex_id: u32, @builtin(instance_index) insta
     out.background_color3 = gradient.color3;
     out.border_color = hsla_to_rgba(quad.border_color);
     out.quad_id = instance_id;
+    out.blend_mode = quad.blend_mode;
     out.clip_distances = distance_from_clip_rect_transformed(unit_vertex, quad.bounds, quad.content_mask, quad.transform);
     return out;
+}
+
+fn apply_blend_mode(src: vec4<f32>, mode: u32) -> vec4<f32> {
+    switch mode {
+        case 0u: { return src; }
+        case 1u: {
+            return vec4<f32>(src.rgb * src.rgb, src.a);
+        }
+        case 2u: {
+            return vec4<f32>(1.0 - (1.0 - src.rgb) * (1.0 - src.rgb), src.a);
+        }
+        case 3u: {
+            let mid = vec3<f32>(0.5);
+            let r = select(
+                1.0 - 2.0 * (1.0 - src.rgb) * (1.0 - mid),
+                2.0 * src.rgb * mid,
+                src.rgb < vec3<f32>(0.5)
+            );
+            return vec4<f32>(r, src.a);
+        }
+        case 4u: {
+            return vec4<f32>(src.rgb * src.rgb + 2.0 * src.rgb * (1.0 - src.rgb), src.a);
+        }
+        case 5u: {
+            return vec4<f32>(abs(src.rgb - 0.5), src.a);
+        }
+        default: { return src; }
+    }
 }
 
 @fragment
@@ -587,9 +618,10 @@ fn fs_quad(input: QuadVarying) -> @location(0) vec4<f32> {
 
     let quad = b_quads[input.quad_id];
 
-    let background_color = gradient_color(quad.background, input.position.xy, quad.bounds,
+    var background_color = gradient_color(quad.background, input.position.xy, quad.bounds,
         input.background_solid, input.background_color0, input.background_color1,
         input.background_color2, input.background_color3);
+    background_color = apply_blend_mode(background_color, input.blend_mode);
 
     let unrounded = quad.corner_radii.top_left == 0.0 &&
         quad.corner_radii.bottom_left == 0.0 &&

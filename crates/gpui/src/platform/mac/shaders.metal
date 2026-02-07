@@ -61,6 +61,7 @@ struct QuadVertexOutput {
   float4 background_color2 [[flat]];
   float4 background_color3 [[flat]];
   float clip_distance [[clip_distance]][4];
+  uint blend_mode [[flat]];
 };
 
 struct QuadFragmentInput {
@@ -72,6 +73,7 @@ struct QuadFragmentInput {
   float4 background_color1 [[flat]];
   float4 background_color2 [[flat]];
   float4 background_color3 [[flat]];
+  uint blend_mode [[flat]];
 };
 
 vertex QuadVertexOutput quad_vertex(uint unit_vertex_id [[vertex_id]],
@@ -110,7 +112,28 @@ vertex QuadVertexOutput quad_vertex(uint unit_vertex_id [[vertex_id]],
       gradient.color1,
       gradient.color2,
       gradient.color3,
-      {clip_distance.x, clip_distance.y, clip_distance.z, clip_distance.w}};
+      {clip_distance.x, clip_distance.y, clip_distance.z, clip_distance.w},
+      quad.blend_mode};
+}
+
+float4 apply_blend_mode(float4 src, uint mode) {
+  switch (mode) {
+    case 0u: return src;
+    case 1u: return float4(src.rgb * src.rgb, src.a);
+    case 2u: return float4(1.0 - (1.0 - src.rgb) * (1.0 - src.rgb), src.a);
+    case 3u: {
+      float3 mid = float3(0.5);
+      float3 r = select(
+        1.0 - 2.0 * (1.0 - src.rgb) * (1.0 - mid),
+        2.0 * src.rgb * mid,
+        src.rgb < float3(0.5)
+      );
+      return float4(r, src.a);
+    }
+    case 4u: return float4(src.rgb * src.rgb + 2.0 * src.rgb * (1.0 - src.rgb), src.a);
+    case 5u: return float4(abs(src.rgb - 0.5), src.a);
+    default: return src;
+  }
 }
 
 fragment float4 quad_fragment(QuadFragmentInput input [[stage_in]],
@@ -120,6 +143,7 @@ fragment float4 quad_fragment(QuadFragmentInput input [[stage_in]],
   float4 background_color = fill_color(quad.background, input.position.xy, quad.bounds,
     input.background_solid, input.background_color0, input.background_color1,
     input.background_color2, input.background_color3);
+  background_color = apply_blend_mode(background_color, input.blend_mode);
 
   bool unrounded = quad.corner_radii.top_left == 0.0 &&
     quad.corner_radii.bottom_left == 0.0 &&

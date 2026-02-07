@@ -1,7 +1,7 @@
 use crate::{
-    self as gpui, point, px, relative, rems, AbsoluteLength, AlignContent, AlignItems, BorderStyle,
-    CursorStyle, DefiniteLength, Display, Fill, FlexDirection, FlexWrap, Font, FontStyle,
-    FontWeight, GridPlacement, Hsla, JustifyContent, Length, Pixels, SharedString,
+    self as gpui, point, px, relative, rems, AbsoluteLength, AlignContent, AlignItems, BlendMode,
+    BorderStyle, CursorStyle, DefiniteLength, Display, Fill, FlexDirection, FlexWrap, Font,
+    FontStyle, FontWeight, GridPlacement, Hsla, JustifyContent, Length, Pixels, SharedString,
     StrikethroughStyle, StyleRefinement, TextAlign, TextOverflow, TextShadow, TextStyleRefinement,
     UnderlineStyle, WhiteSpace,
 };
@@ -169,6 +169,12 @@ pub trait Styled: Sized {
     /// This produces smooth Apple-style corners matching SwiftUI's continuous corner style.
     fn continuous_corners(mut self) -> Self {
         self.style().continuous_corners = Some(true);
+        self
+    }
+
+    /// Sets the blend mode for this element's background rendering.
+    fn blend_mode(mut self, mode: BlendMode) -> Self {
+        self.style().blend_mode = Some(mode);
         self
     }
 

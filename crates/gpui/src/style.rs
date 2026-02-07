@@ -7,7 +7,7 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::{
-    black, phi, point, quad, rems, size, AbsoluteLength, App, Background, BackgroundTag,
+    black, phi, point, quad, rems, size, AbsoluteLength, App, Background, BackgroundTag, BlendMode,
     BorderStyle, Bounds, ContentMask, Corners, CornersRefinement, CursorStyle, DefiniteLength,
     DevicePixels, Edges, EdgesRefinement, Font, FontFallbacks, FontFeatures, FontStyle, FontWeight,
     GridLocation, Hsla, Length, Pixels, Point, PointRefinement, Radians, Rgba, SharedString, Size,
@@ -252,6 +252,9 @@ pub struct Style {
 
     /// Whether to use continuous (squircle) corner rounding instead of circular.
     pub continuous_corners: bool,
+
+    /// The blend mode to apply when rendering this element's background.
+    pub blend_mode: Option<BlendMode>,
 
     /// Box shadow of the element
     pub box_shadow: SmallVec<[BoxShadow; 1]>,
@@ -696,6 +699,7 @@ impl Style {
             );
             bg_quad.continuous_corners = self.continuous_corners;
             bg_quad.transform = transform;
+            bg_quad.blend_mode = self.blend_mode.unwrap_or_default();
             window.paint_quad(bg_quad);
         }
 
@@ -849,6 +853,7 @@ impl Default for Style {
             border_style: BorderStyle::default(),
             corner_radii: Corners::default(),
             continuous_corners: false,
+            blend_mode: None,
             box_shadow: Default::default(),
             text: TextStyleRefinement::default(),
             mouse_cursor: None,

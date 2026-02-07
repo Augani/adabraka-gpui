@@ -136,6 +136,7 @@ mod macos {
             "Underline".into(),
             "UnderlineInputIndex".into(),
             "Quad".into(),
+            "BlendMode".into(),
             "BorderStyle".into(),
             "SpriteInputIndex".into(),
             "MonochromeSprite".into(),

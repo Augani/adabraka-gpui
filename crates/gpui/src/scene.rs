@@ -497,6 +497,7 @@ pub(crate) struct Quad {
     pub border_widths: Edges<ScaledPixels>,
     pub continuous_corners: u32,
     pub transform: TransformationMatrix,
+    pub blend_mode: u32,
 }
 
 impl From<Quad> for Primitive {
@@ -539,6 +540,25 @@ impl From<Shadow> for Primitive {
     fn from(shadow: Shadow) -> Self {
         Primitive::Shadow(shadow)
     }
+}
+
+/// The blend mode to apply when rendering a quad.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[repr(C)]
+pub enum BlendMode {
+    /// Standard alpha blending (source over destination).
+    #[default]
+    Normal = 0,
+    /// Darkens by multiplying source color with itself.
+    Multiply = 1,
+    /// Lightens by applying the screen formula to the source color.
+    Screen = 2,
+    /// Combines multiply and screen based on source luminance.
+    Overlay = 3,
+    /// A softer version of overlay that produces gentler contrast.
+    SoftLight = 4,
+    /// Subtracts the darker color from the lighter color.
+    Difference = 5,
 }
 
 /// The style of a border.

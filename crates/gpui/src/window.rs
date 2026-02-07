@@ -2,7 +2,7 @@
 use crate::Inspector;
 use crate::{
     Action, AnyDrag, AnyElement, AnyImageCache, AnyTooltip, AnyView, App, AppContext, Arena, Asset,
-    AsyncWindowContext, AvailableSpace, Background, BorderStyle, Bounds, BoxShadow, Capslock,
+    AsyncWindowContext, AvailableSpace, Background, BlendMode, BorderStyle, Bounds, BoxShadow, Capslock,
     Context, Corners, CursorStyle, Decorations, DevicePixels, DispatchActionListener,
     DispatchNodeId, DispatchTree, DisplayId, Edges, Effect, Entity, EntityId, EventEmitter,
     FileDropEvent, FontId, Global, GlobalElementId, GlyphId, GpuSpecs, Hsla, InputHandler, IsZero,
@@ -2864,6 +2864,7 @@ impl Window {
             border_style: quad.border_style,
             continuous_corners: if quad.continuous_corners { 1 } else { 0 },
             transform: quad.transform,
+            blend_mode: quad.blend_mode as u32,
         });
     }
 
@@ -5039,6 +5040,8 @@ pub struct PaintQuad {
     pub continuous_corners: bool,
     /// The 2D affine transform applied to this quad.
     pub transform: TransformationMatrix,
+    /// The blend mode to apply when rendering this quad.
+    pub blend_mode: BlendMode,
 }
 
 impl PaintQuad {
@@ -5093,6 +5096,7 @@ pub fn quad(
         border_style,
         continuous_corners: false,
         transform: TransformationMatrix::unit(),
+        blend_mode: BlendMode::Normal,
     }
 }
 
@@ -5107,6 +5111,7 @@ pub fn fill(bounds: impl Into<Bounds<Pixels>>, background: impl Into<Background>
         border_style: BorderStyle::default(),
         continuous_corners: false,
         transform: TransformationMatrix::unit(),
+        blend_mode: BlendMode::Normal,
     }
 }
 
@@ -5125,5 +5130,6 @@ pub fn outline(
         border_style,
         continuous_corners: false,
         transform: TransformationMatrix::unit(),
+        blend_mode: BlendMode::Normal,
     }
 }
