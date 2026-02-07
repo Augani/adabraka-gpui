@@ -42,23 +42,24 @@ struct LinearColorStop {
 };
 
 struct Background {
-    // 0u is Solid
-    // 1u is LinearGradient
-    // 2u is PatternSlash
+    // 0u=Solid, 1u=LinearGradient, 2u=PatternSlash, 3u=RadialGradient, 4u=ConicGradient
     uint tag;
-    // 0u is sRGB linear color
-    // 1u is Oklab color
+    // 0u is sRGB linear color, 1u is Oklab color
     uint color_space;
     Hsla solid;
     float gradient_angle_or_pattern_height;
-    LinearColorStop colors[2];
-    uint pad;
+    LinearColorStop colors[4];
+    uint stop_count;
+    float2 center;
+    float2 radius;
 };
 
 struct GradientColor {
   float4 solid;
   float4 color0;
   float4 color1;
+  float4 color2;
+  float4 color3;
 };
 
 struct AtlasTextureId {
@@ -314,20 +315,23 @@ float squircle_sdf(float2 point, Bounds bounds, Corners corner_radii) {
     return dist;
 }
 
-GradientColor prepare_gradient_color(uint tag, uint color_space, Hsla solid, LinearColorStop colors[2]) {
+GradientColor prepare_gradient_color(uint tag, uint color_space, Hsla solid,
+    LinearColorStop colors[4], uint stop_count) {
     GradientColor output;
     if (tag == 0 || tag == 2) {
         output.solid = hsla_to_rgba(solid);
-    } else if (tag == 1) {
+    } else {
+        uint count = stop_count > 0 ? stop_count : 2;
         output.color0 = hsla_to_rgba(colors[0].color);
         output.color1 = hsla_to_rgba(colors[1].color);
+        if (count > 2) { output.color2 = hsla_to_rgba(colors[2].color); }
+        if (count > 3) { output.color3 = hsla_to_rgba(colors[3].color); }
 
-        // Prepare color space in vertex for avoid conversion
-        // in fragment shader for performance reasons
         if (color_space == 1) {
-            // Oklab
             output.color0 = srgb_to_oklab(output.color0);
             output.color1 = srgb_to_oklab(output.color1);
+            if (count > 2) { output.color2 = srgb_to_oklab(output.color2); }
+            if (count > 3) { output.color3 = srgb_to_oklab(output.color3); }
         }
     }
 
@@ -340,10 +344,45 @@ float2x2 rotate2d(float angle) {
     return float2x2(c, -s, s, c);
 }
 
+float4 interpolate_multi_stop_hlsl(float t_raw, Background background, uint color_space,
+    float4 c0, float4 c1, float4 c2, float4 c3) {
+    uint count = background.stop_count > 0 ? background.stop_count : 2;
+    float t = clamp(t_raw, 0.0, 1.0);
+
+    float4 mixed;
+    if (count <= 2) {
+        float s0 = background.colors[0].percentage;
+        float s1 = background.colors[1].percentage;
+        float local_t = clamp((t - s0) / (s1 - s0), 0.0, 1.0);
+        mixed = lerp(c0, c1, local_t);
+    } else {
+        if (t <= background.colors[0].percentage) {
+            mixed = c0;
+        } else if (t <= background.colors[1].percentage) {
+            float local_t = (t - background.colors[0].percentage) / (background.colors[1].percentage - background.colors[0].percentage);
+            mixed = lerp(c0, c1, local_t);
+        } else if (count > 2 && t <= background.colors[2].percentage) {
+            float local_t = (t - background.colors[1].percentage) / (background.colors[2].percentage - background.colors[1].percentage);
+            mixed = lerp(c1, c2, local_t);
+        } else if (count > 3 && t <= background.colors[3].percentage) {
+            float local_t = (t - background.colors[2].percentage) / (background.colors[3].percentage - background.colors[2].percentage);
+            mixed = lerp(c2, c3, local_t);
+        } else {
+            mixed = (count == 3) ? c2 : c3;
+        }
+    }
+
+    if (color_space == 1) {
+        return oklab_to_srgb(mixed);
+    }
+    return mixed;
+}
+
 float4 gradient_color(Background background,
                       float2 position,
                       Bounds bounds,
-                      float4 solid_color, float4 color0, float4 color1) {
+                      float4 solid_color, float4 color0, float4 color1,
+                      float4 color2, float4 color3) {
     float4 color;
 
     switch (background.tag) {
@@ -351,46 +390,28 @@ float4 gradient_color(Background background,
             color = solid_color;
             break;
         case 1: {
-            // -90 degrees to match the CSS gradient angle.
             float gradient_angle = background.gradient_angle_or_pattern_height;
             float radians = (fmod(gradient_angle, 360.0) - 90.0) * (M_PI_F / 180.0);
             float2 direction = float2(cos(radians), sin(radians));
 
-            // Expand the short side to be the same as the long side
             if (bounds.size.x > bounds.size.y) {
                 direction.y *= bounds.size.y / bounds.size.x;
             } else {
-                direction.x *=  bounds.size.x / bounds.size.y;
+                direction.x *= bounds.size.x / bounds.size.y;
             }
 
-            // Get the t value for the linear gradient with the color stop percentages.
             float2 half_size = bounds.size * 0.5;
             float2 center = bounds.origin + half_size;
             float2 center_to_point = position - center;
             float t = dot(center_to_point, direction) / length(direction);
-            // Check the direct to determine the use x or y
             if (abs(direction.x) > abs(direction.y)) {
                 t = (t + half_size.x) / bounds.size.x;
             } else {
                 t = (t + half_size.y) / bounds.size.y;
             }
 
-            // Adjust t based on the stop percentages
-            t = (t - background.colors[0].percentage)
-                / (background.colors[1].percentage
-                - background.colors[0].percentage);
-            t = clamp(t, 0.0, 1.0);
-
-            switch (background.color_space) {
-                case 0:
-                    color = lerp(color0, color1, t);
-                    break;
-                case 1: {
-                    float4 oklab_color = lerp(color0, color1, t);
-                    color = oklab_to_srgb(oklab_color);
-                    break;
-                }
-            }
+            color = interpolate_multi_stop_hlsl(t, background, background.color_space,
+                color0, color1, color2, color3);
             break;
         }
         case 2: {
@@ -404,9 +425,28 @@ float4 gradient_color(Background background,
             float2 relative_position = position - bounds.origin;
             float2 rotated_point = mul(relative_position, rotation);
             float pattern = fmod(rotated_point.x, pattern_period);
-            float distance = min(pattern, pattern_period - pattern) - pattern_period * (pattern_width / pattern_height) /  2.0f;
+            float distance = min(pattern, pattern_period - pattern) - pattern_period * (pattern_width / pattern_height) / 2.0f;
             color = solid_color;
             color.a *= saturate(0.5 - distance);
+            break;
+        }
+        case 3: {
+            float2 center = bounds.origin + background.center * bounds.size;
+            float2 radius_px = background.radius * bounds.size;
+            float2 diff = (position - center) / radius_px;
+            float t = length(diff);
+            color = interpolate_multi_stop_hlsl(t, background, background.color_space,
+                color0, color1, color2, color3);
+            break;
+        }
+        case 4: {
+            float2 center = bounds.origin + background.center * bounds.size;
+            float2 diff = position - center;
+            float angle_rad = atan2(diff.y, diff.x);
+            float angle_offset = background.gradient_angle_or_pattern_height * M_PI_F / 180.0;
+            float t = fmod((angle_rad + M_PI_F + angle_offset) / (2.0 * M_PI_F), 1.0);
+            color = interpolate_multi_stop_hlsl(t, background, background.color_space,
+                color0, color1, color2, color3);
             break;
         }
     }
@@ -491,6 +531,8 @@ struct QuadVertexOutput {
     nointerpolation float4 background_solid: COLOR1;
     nointerpolation float4 background_color0: COLOR2;
     nointerpolation float4 background_color1: COLOR3;
+    nointerpolation float4 background_color2: COLOR4;
+    nointerpolation float4 background_color3: COLOR5;
     float4 clip_distance: SV_ClipDistance;
 };
 
@@ -501,6 +543,8 @@ struct QuadFragmentInput {
     nointerpolation float4 background_solid: COLOR1;
     nointerpolation float4 background_color0: COLOR2;
     nointerpolation float4 background_color1: COLOR3;
+    nointerpolation float4 background_color2: COLOR4;
+    nointerpolation float4 background_color3: COLOR5;
 };
 
 StructuredBuffer<Quad> quads: register(t1);
@@ -514,7 +558,8 @@ QuadVertexOutput quad_vertex(uint vertex_id: SV_VertexID, uint quad_id: SV_Insta
         quad.background.tag,
         quad.background.color_space,
         quad.background.solid,
-        quad.background.colors
+        quad.background.colors,
+        quad.background.stop_count
     );
     float4 clip_distance = distance_from_clip_rect_transformed(unit_vertex, quad.bounds, quad.content_mask, quad.transform);
     float4 border_color = hsla_to_rgba(quad.border_color);
@@ -526,6 +571,8 @@ QuadVertexOutput quad_vertex(uint vertex_id: SV_VertexID, uint quad_id: SV_Insta
     output.background_solid = gradient.solid;
     output.background_color0 = gradient.color0;
     output.background_color1 = gradient.color1;
+    output.background_color2 = gradient.color2;
+    output.background_color3 = gradient.color3;
     output.clip_distance = clip_distance;
     return output;
 }
@@ -533,7 +580,8 @@ QuadVertexOutput quad_vertex(uint vertex_id: SV_VertexID, uint quad_id: SV_Insta
 float4 quad_fragment(QuadFragmentInput input): SV_Target {
     Quad quad = quads[input.quad_id];
     float4 background_color = gradient_color(quad.background, input.position.xy, quad.bounds,
-    input.background_solid, input.background_color0, input.background_color1);
+    input.background_solid, input.background_color0, input.background_color1,
+    input.background_color2, input.background_color3);
 
     bool unrounded = quad.corner_radii.top_left == 0.0 &&
         quad.corner_radii.top_right == 0.0 &&
@@ -958,10 +1006,12 @@ float4 path_rasterization_fragment(PathFragmentInput input): SV_Target {
     }
 
     GradientColor gradient = prepare_gradient_color(
-        background.tag, background.color_space, background.solid, background.colors);
+        background.tag, background.color_space, background.solid, background.colors,
+        background.stop_count);
 
     float4 color = gradient_color(background, input.position.xy, bounds,
-        gradient.solid, gradient.color0, gradient.color1);
+        gradient.solid, gradient.color0, gradient.color1,
+        gradient.color2, gradient.color3);
     return float4(color.rgb * color.a * alpha, alpha * color.a);
 }
 

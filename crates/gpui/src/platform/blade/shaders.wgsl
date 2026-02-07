@@ -104,17 +104,16 @@ struct LinearColorStop {
 }
 
 struct Background {
-    // 0u is Solid
-    // 1u is LinearGradient
-    // 2u is PatternSlash
+    // 0u=Solid, 1u=LinearGradient, 2u=PatternSlash, 3u=RadialGradient, 4u=ConicGradient
     tag: u32,
-    // 0u is sRGB linear color
-    // 1u is Oklab color
+    // 0u is sRGB linear color, 1u is Oklab color
     color_space: u32,
     solid: Hsla,
     gradient_angle_or_pattern_height: f32,
-    colors: array<LinearColorStop, 2>,
-    pad: u32,
+    colors: array<LinearColorStop, 4>,
+    stop_count: u32,
+    center: vec2<f32>,
+    radius: vec2<f32>,
 }
 
 struct AtlasTextureId {
@@ -378,37 +377,81 @@ struct GradientColor {
     solid: vec4<f32>,
     color0: vec4<f32>,
     color1: vec4<f32>,
+    color2: vec4<f32>,
+    color3: vec4<f32>,
 }
 
 fn prepare_gradient_color(tag: u32, color_space: u32,
-    solid: Hsla, colors: array<LinearColorStop, 2>) -> GradientColor {
+    solid: Hsla, colors: array<LinearColorStop, 4>, stop_count: u32) -> GradientColor {
     var result = GradientColor();
 
     if (tag == 0u || tag == 2u) {
         result.solid = hsla_to_rgba(solid);
-    } else if (tag == 1u) {
-        // The hsla_to_rgba is returns a linear sRGB color
+    } else {
+        let count = select(2u, stop_count, stop_count > 0u);
         result.color0 = hsla_to_rgba(colors[0].color);
         result.color1 = hsla_to_rgba(colors[1].color);
+        if (count > 2u) { result.color2 = hsla_to_rgba(colors[2].color); }
+        if (count > 3u) { result.color3 = hsla_to_rgba(colors[3].color); }
 
-        // Prepare color space in vertex for avoid conversion
-        // in fragment shader for performance reasons
         if (color_space == 0u) {
-            // sRGB
             result.color0 = linear_to_srgba(result.color0);
             result.color1 = linear_to_srgba(result.color1);
+            if (count > 2u) { result.color2 = linear_to_srgba(result.color2); }
+            if (count > 3u) { result.color3 = linear_to_srgba(result.color3); }
         } else if (color_space == 1u) {
-            // Oklab
             result.color0 = linear_srgb_to_oklab(result.color0);
             result.color1 = linear_srgb_to_oklab(result.color1);
+            if (count > 2u) { result.color2 = linear_srgb_to_oklab(result.color2); }
+            if (count > 3u) { result.color3 = linear_srgb_to_oklab(result.color3); }
         }
     }
 
     return result;
 }
 
+fn interpolate_multi_stop(t_raw: f32, background: Background, color_space: u32,
+    c0: vec4<f32>, c1: vec4<f32>, c2: vec4<f32>, c3: vec4<f32>) -> vec4<f32> {
+    let count = select(2u, background.stop_count, background.stop_count > 0u);
+    let t = clamp(t_raw, 0.0, 1.0);
+
+    var mixed: vec4<f32>;
+    if (count <= 2u) {
+        let s0 = background.colors[0].percentage;
+        let s1 = background.colors[1].percentage;
+        let local_t = clamp((t - s0) / (s1 - s0), 0.0, 1.0);
+        mixed = mix(c0, c1, local_t);
+    } else {
+        if (t <= background.colors[0].percentage) {
+            mixed = c0;
+        } else if (t <= background.colors[1].percentage) {
+            let local_t = (t - background.colors[0].percentage) / (background.colors[1].percentage - background.colors[0].percentage);
+            mixed = mix(c0, c1, local_t);
+        } else if (count > 2u && t <= background.colors[2].percentage) {
+            let local_t = (t - background.colors[1].percentage) / (background.colors[2].percentage - background.colors[1].percentage);
+            mixed = mix(c1, c2, local_t);
+        } else if (count > 3u && t <= background.colors[3].percentage) {
+            let local_t = (t - background.colors[2].percentage) / (background.colors[3].percentage - background.colors[2].percentage);
+            mixed = mix(c2, c3, local_t);
+        } else {
+            if (count == 3u) { mixed = c2; }
+            else { mixed = c3; }
+        }
+    }
+
+    switch (color_space) {
+        default: {
+            return srgba_to_linear(mixed);
+        }
+        case 1u: {
+            return oklab_to_linear_srgb(mixed);
+        }
+    }
+}
+
 fn gradient_color(background: Background, position: vec2<f32>, bounds: Bounds,
-    solid_color: vec4<f32>, color0: vec4<f32>, color1: vec4<f32>) -> vec4<f32> {
+    solid_color: vec4<f32>, color0: vec4<f32>, color1: vec4<f32>,
+    color2: vec4<f32>, color3: vec4<f32>) -> vec4<f32> {
     var background_color = vec4<f32>(0.0);
 
     switch (background.tag) {
@@ -416,46 +459,28 @@ fn gradient_color(background: Background, position: vec2<f32>, bounds: Bounds,
             return solid_color;
         }
         case 1u: {
-            // Linear gradient background.
-            // -90 degrees to match the CSS gradient angle.
             let angle = background.gradient_angle_or_pattern_height;
             let radians = (angle % 360.0 - 90.0) * M_PI_F / 180.0;
             var direction = vec2<f32>(cos(radians), sin(radians));
-            let stop0_percentage = background.colors[0].percentage;
-            let stop1_percentage = background.colors[1].percentage;
 
-            // Expand the short side to be the same as the long side
             if (bounds.size.x > bounds.size.y) {
                 direction.y *= bounds.size.y / bounds.size.x;
             } else {
                 direction.x *= bounds.size.x / bounds.size.y;
             }
 
-            // Get the t value for the linear gradient with the color stop percentages.
             let half_size = bounds.size / 2.0;
             let center = bounds.origin + half_size;
             let center_to_point = position - center;
             var t = dot(center_to_point, direction) / length(direction);
-            // Check the direct to determine the use x or y
             if (abs(direction.x) > abs(direction.y)) {
                 t = (t + half_size.x) / bounds.size.x;
             } else {
                 t = (t + half_size.y) / bounds.size.y;
             }
 
-            // Adjust t based on the stop percentages
-            t = (t - stop0_percentage) / (stop1_percentage - stop0_percentage);
-            t = clamp(t, 0.0, 1.0);
-
-            switch (background.color_space) {
-                default: {
-                    background_color = srgba_to_linear(mix(color0, color1, t));
-                }
-                case 1u: {
-                    let oklab_color = mix(color0, color1, t);
-                    background_color = oklab_to_linear_srgb(oklab_color);
-                }
-            }
+            background_color = interpolate_multi_stop(t, background, background.color_space,
+                color0, color1, color2, color3);
         }
         case 2u: {
             let gradient_angle_or_pattern_height = background.gradient_angle_or_pattern_height;
@@ -474,6 +499,24 @@ fn gradient_color(background: Background, position: vec2<f32>, bounds: Bounds,
             let distance = min(pattern, pattern_period - pattern) - pattern_period * (pattern_width / pattern_height) /  2.0f;
             background_color = solid_color;
             background_color.a *= saturate(0.5 - distance);
+        }
+        case 3u: {
+            let center = bounds.origin + background.center * bounds.size;
+            let radius_px = background.radius * bounds.size;
+            let diff = (position - center) / radius_px;
+            let t = length(diff);
+            background_color = interpolate_multi_stop(t, background, background.color_space,
+                color0, color1, color2, color3);
+        }
+        case 4u: {
+            let center = bounds.origin + background.center * bounds.size;
+            let diff = position - center;
+            let angle_rad = atan2(diff.y, diff.x);
+            let angle_offset = background.gradient_angle_or_pattern_height * M_PI_F / 180.0;
+            var t = (angle_rad + M_PI_F + angle_offset) / (2.0 * M_PI_F);
+            t = t % 1.0;
+            background_color = interpolate_multi_stop(t, background, background.color_space,
+                color0, color1, color2, color3);
         }
     }
 
@@ -505,6 +548,8 @@ struct QuadVarying {
     @location(3) @interpolate(flat) background_solid: vec4<f32>,
     @location(4) @interpolate(flat) background_color0: vec4<f32>,
     @location(5) @interpolate(flat) background_color1: vec4<f32>,
+    @location(6) @interpolate(flat) background_color2: vec4<f32>,
+    @location(7) @interpolate(flat) background_color3: vec4<f32>,
 }
 
 @vertex
@@ -519,11 +564,14 @@ fn vs_quad(@builtin(vertex_index) vertex_id: u32, @builtin(instance_index) insta
         quad.background.tag,
         quad.background.color_space,
         quad.background.solid,
-        quad.background.colors
+        quad.background.colors,
+        quad.background.stop_count
     );
     out.background_solid = gradient.solid;
     out.background_color0 = gradient.color0;
     out.background_color1 = gradient.color1;
+    out.background_color2 = gradient.color2;
+    out.background_color3 = gradient.color3;
     out.border_color = hsla_to_rgba(quad.border_color);
     out.quad_id = instance_id;
     out.clip_distances = distance_from_clip_rect_transformed(unit_vertex, quad.bounds, quad.content_mask, quad.transform);
@@ -540,7 +588,8 @@ fn fs_quad(input: QuadVarying) -> @location(0) vec4<f32> {
     let quad = b_quads[input.quad_id];
 
     let background_color = gradient_color(quad.background, input.position.xy, quad.bounds,
-        input.background_solid, input.background_color0, input.background_color1);
+        input.background_solid, input.background_color0, input.background_color1,
+        input.background_color2, input.background_color3);
 
     let unrounded = quad.corner_radii.top_left == 0.0 &&
         quad.corner_radii.bottom_left == 0.0 &&
@@ -1045,14 +1094,16 @@ fn fs_path_rasterization(input: PathRasterizationVarying) -> @location(0) vec4<f
         let distance = f / length(gradient);
         alpha = saturate(0.5 - distance);
     }
-    let gradient_color = prepare_gradient_color(
+    let gradient_col = prepare_gradient_color(
         background.tag,
         background.color_space,
         background.solid,
         background.colors,
+        background.stop_count,
     );
     let color = gradient_color(background, input.position.xy, bounds,
-        gradient_color.solid, gradient_color.color0, gradient_color.color1);
+        gradient_col.solid, gradient_col.color0, gradient_col.color1,
+        gradient_col.color2, gradient_col.color3);
     return vec4<f32>(color.rgb * color.a * alpha, color.a * alpha);
 }
 

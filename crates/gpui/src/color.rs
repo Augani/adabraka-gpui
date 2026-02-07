@@ -1,8 +1,8 @@
-use anyhow::{Context as _, bail};
-use schemars::{JsonSchema, json_schema};
+use anyhow::{bail, Context as _};
+use schemars::{json_schema, JsonSchema};
 use serde::{
-    Deserialize, Deserializer, Serialize, Serializer,
     de::{self, Visitor},
+    Deserialize, Deserializer, Serialize, Serializer,
 };
 use std::borrow::Cow;
 use std::{
@@ -658,6 +658,8 @@ pub(crate) enum BackgroundTag {
     Solid = 0,
     LinearGradient = 1,
     PatternSlash = 2,
+    RadialGradient = 3,
+    ConicGradient = 4,
 }
 
 /// A color space for color interpolation.
@@ -684,7 +686,7 @@ impl Display for ColorSpace {
     }
 }
 
-/// A background color, which can be either a solid color or a linear gradient.
+/// A background color, which can be a solid color, linear gradient, radial gradient, or conic gradient.
 #[derive(Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[repr(C)]
 pub struct Background {
@@ -692,9 +694,10 @@ pub struct Background {
     pub(crate) color_space: ColorSpace,
     pub(crate) solid: Hsla,
     pub(crate) gradient_angle_or_pattern_height: f32,
-    pub(crate) colors: [LinearColorStop; 2],
-    /// Padding for alignment for repr(C) layout.
-    pad: u32,
+    pub(crate) colors: [LinearColorStop; 4],
+    pub(crate) stop_count: u32,
+    pub(crate) center: [f32; 2],
+    pub(crate) radius: [f32; 2],
 }
 
 impl std::fmt::Debug for Background {
@@ -702,10 +705,16 @@ impl std::fmt::Debug for Background {
         match self.tag {
             BackgroundTag::Solid => write!(f, "Solid({:?})", self.solid),
             BackgroundTag::LinearGradient => {
+                let count = if self.stop_count == 0 {
+                    2
+                } else {
+                    self.stop_count as usize
+                };
                 write!(
                     f,
-                    "LinearGradient({}, {:?}, {:?})",
-                    self.gradient_angle_or_pattern_height, self.colors[0], self.colors[1]
+                    "LinearGradient({}, {:?})",
+                    self.gradient_angle_or_pattern_height,
+                    &self.colors[..count]
                 )
             }
             BackgroundTag::PatternSlash => {
@@ -713,6 +722,34 @@ impl std::fmt::Debug for Background {
                     f,
                     "PatternSlash({:?}, {})",
                     self.solid, self.gradient_angle_or_pattern_height
+                )
+            }
+            BackgroundTag::RadialGradient => {
+                let count = if self.stop_count == 0 {
+                    2
+                } else {
+                    self.stop_count as usize
+                };
+                write!(
+                    f,
+                    "RadialGradient(center={:?}, radius={:?}, {:?})",
+                    self.center,
+                    self.radius,
+                    &self.colors[..count]
+                )
+            }
+            BackgroundTag::ConicGradient => {
+                let count = if self.stop_count == 0 {
+                    2
+                } else {
+                    self.stop_count as usize
+                };
+                write!(
+                    f,
+                    "ConicGradient(center={:?}, angle={}, {:?})",
+                    self.center,
+                    self.gradient_angle_or_pattern_height,
+                    &self.colors[..count]
                 )
             }
         }
@@ -727,8 +764,10 @@ impl Default for Background {
             solid: Hsla::default(),
             color_space: ColorSpace::default(),
             gradient_angle_or_pattern_height: 0.0,
-            colors: [LinearColorStop::default(), LinearColorStop::default()],
-            pad: 0,
+            colors: [LinearColorStop::default(); 4],
+            stop_count: 0,
+            center: [0.5, 0.5],
+            radius: [0.5, 0.5],
         }
     }
 }
@@ -767,10 +806,82 @@ pub fn linear_gradient(
     from: impl Into<LinearColorStop>,
     to: impl Into<LinearColorStop>,
 ) -> Background {
+    let mut colors = [LinearColorStop::default(); 4];
+    colors[0] = from.into();
+    colors[1] = to.into();
     Background {
         tag: BackgroundTag::LinearGradient,
         gradient_angle_or_pattern_height: angle,
-        colors: [from.into(), to.into()],
+        colors,
+        stop_count: 2,
+        ..Default::default()
+    }
+}
+
+/// Creates a linear gradient with up to 4 color stops.
+pub fn multi_stop_linear_gradient(angle: f32, stops: &[LinearColorStop]) -> Background {
+    let mut colors = [LinearColorStop::default(); 4];
+    let count = stops.len().min(4);
+    for i in 0..count {
+        colors[i] = stops[i];
+    }
+    Background {
+        tag: BackgroundTag::LinearGradient,
+        gradient_angle_or_pattern_height: angle,
+        colors,
+        stop_count: count as u32,
+        ..Default::default()
+    }
+}
+
+/// Creates a radial gradient background.
+///
+/// `center` is the center point of the gradient in normalized coordinates (0.0 to 1.0).
+/// `radius` is the radius of the gradient in normalized coordinates (0.0 to 1.0).
+/// Supports up to 4 color stops.
+pub fn radial_gradient(
+    center_x: f32,
+    center_y: f32,
+    radius: f32,
+    stops: &[LinearColorStop],
+) -> Background {
+    let mut colors = [LinearColorStop::default(); 4];
+    let count = stops.len().min(4);
+    for i in 0..count {
+        colors[i] = stops[i];
+    }
+    Background {
+        tag: BackgroundTag::RadialGradient,
+        colors,
+        stop_count: count as u32,
+        center: [center_x, center_y],
+        radius: [radius, radius],
+        ..Default::default()
+    }
+}
+
+/// Creates a conic (sweep) gradient background.
+///
+/// `center` is the center point of the gradient in normalized coordinates (0.0 to 1.0).
+/// `angle_offset` is the starting angle offset in degrees.
+/// Supports up to 4 color stops.
+pub fn conic_gradient(
+    center_x: f32,
+    center_y: f32,
+    angle_offset: f32,
+    stops: &[LinearColorStop],
+) -> Background {
+    let mut colors = [LinearColorStop::default(); 4];
+    let count = stops.len().min(4);
+    for i in 0..count {
+        colors[i] = stops[i];
+    }
+    Background {
+        tag: BackgroundTag::ConicGradient,
+        gradient_angle_or_pattern_height: angle_offset,
+        colors,
+        stop_count: count as u32,
+        center: [center_x, center_y],
         ..Default::default()
     }
 }
@@ -823,6 +934,8 @@ impl Background {
         background.colors = [
             self.colors[0].opacity(factor),
             self.colors[1].opacity(factor),
+            self.colors[2].opacity(factor),
+            self.colors[3].opacity(factor),
         ];
         background
     }
@@ -831,7 +944,18 @@ impl Background {
     pub fn is_transparent(&self) -> bool {
         match self.tag {
             BackgroundTag::Solid => self.solid.is_transparent(),
-            BackgroundTag::LinearGradient => self.colors.iter().all(|c| c.color.is_transparent()),
+            BackgroundTag::LinearGradient
+            | BackgroundTag::RadialGradient
+            | BackgroundTag::ConicGradient => {
+                let count = if self.stop_count == 0 {
+                    2
+                } else {
+                    self.stop_count as usize
+                };
+                self.colors[..count]
+                    .iter()
+                    .all(|c| c.color.is_transparent())
+            }
             BackgroundTag::PatternSlash => self.solid.is_transparent(),
         }
     }

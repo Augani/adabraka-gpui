@@ -674,7 +674,9 @@ impl Style {
             let mut border_color = match background_color {
                 Some(color) => match color.tag {
                     BackgroundTag::Solid => color.solid,
-                    BackgroundTag::LinearGradient => color
+                    BackgroundTag::LinearGradient
+                    | BackgroundTag::RadialGradient
+                    | BackgroundTag::ConicGradient => color
                         .colors
                         .first()
                         .map(|stop| stop.color)
