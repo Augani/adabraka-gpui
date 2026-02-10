@@ -83,6 +83,15 @@ impl<T: 'static> DragMoveEvent<T> {
     }
 }
 
+/// An event that fires when an element's bounds change size.
+#[derive(Clone, Debug)]
+pub struct ResizeEvent {
+    /// The new size of the element.
+    pub size: Size<Pixels>,
+    /// The new bounds of the element.
+    pub bounds: Bounds<Pixels>,
+}
+
 impl Interactivity {
     /// Create an `Interactivity`, capturing the caller location in debug mode.
     #[cfg(any(feature = "inspector", debug_assertions))]
@@ -530,6 +539,17 @@ impl Interactivity {
             "calling on_hover more than once on the same element is not supported"
         );
         self.hover_listener = Some(Box::new(listener));
+    }
+
+    /// Bind the given callback to be called when this element's bounds change size.
+    /// The imperative API equivalent of [`StatefulInteractiveElement::on_resize`]
+    ///
+    /// See [`Context::listener`](crate::Context::listener) to get access to a view's state from this callback.
+    pub fn on_resize(&mut self, listener: impl Fn(&ResizeEvent, &mut Window, &mut App) + 'static)
+    where
+        Self: Sized,
+    {
+        self.resize_listeners.push(Box::new(listener));
     }
 
     /// Use the given callback to construct a new tooltip view when the mouse hovers over this element.
@@ -1178,6 +1198,18 @@ pub trait StatefulInteractiveElement: InteractiveElement {
         self.interactivity().hoverable_tooltip(build_tooltip);
         self
     }
+
+    /// Bind the given callback to be called when this element's bounds change size.
+    /// The fluent API equivalent to [`Interactivity::on_resize`]
+    ///
+    /// See [`Context::listener`](crate::Context::listener) to get access to a view's state from this callback.
+    fn on_resize(mut self, listener: impl Fn(&ResizeEvent, &mut Window, &mut App) + 'static) -> Self
+    where
+        Self: Sized,
+    {
+        self.interactivity().on_resize(listener);
+        self
+    }
 }
 
 pub(crate) type MouseDownListener =
@@ -1216,6 +1248,8 @@ pub(crate) type ModifiersChangedListener =
 
 pub(crate) type ActionListener =
     Box<dyn Fn(&dyn Any, DispatchPhase, &mut Window, &mut App) + 'static>;
+
+pub(crate) type ResizeListener = Box<dyn Fn(&ResizeEvent, &mut Window, &mut App) + 'static>;
 
 /// Construct a new [`Div`] element
 #[track_caller]
@@ -1508,6 +1542,7 @@ pub struct Interactivity {
     pub(crate) click_listeners: Vec<ClickListener>,
     pub(crate) drag_listener: Option<(Arc<dyn Any>, DragListener)>,
     pub(crate) hover_listener: Option<Box<dyn Fn(&bool, &mut Window, &mut App)>>,
+    pub(crate) resize_listeners: Vec<ResizeListener>,
     pub(crate) tooltip_builder: Option<TooltipBuilder>,
     pub(crate) window_control: Option<WindowControlArea>,
     pub(crate) hitbox_behavior: HitboxBehavior,
@@ -1794,6 +1829,26 @@ impl Interactivity {
                 }
 
                 self.paint_hover_group_handler(window, cx);
+
+                if !self.resize_listeners.is_empty() {
+                    if let Some(element_state) = element_state.as_mut() {
+                        let size_changed = element_state
+                            .prev_bounds
+                            .map(|prev| prev.size != bounds.size)
+                            .unwrap_or(true);
+
+                        if size_changed {
+                            element_state.prev_bounds = Some(bounds);
+                            let resize_event = ResizeEvent {
+                                size: bounds.size,
+                                bounds,
+                            };
+                            for listener in &self.resize_listeners {
+                                listener(&resize_event, window, cx);
+                            }
+                        }
+                    }
+                }
 
                 if style.visibility == Visibility::Hidden {
                     return ((), element_state);
@@ -2561,6 +2616,7 @@ pub struct InteractiveElementState {
     pub(crate) pending_mouse_down: Option<Rc<RefCell<Option<MouseDownEvent>>>>,
     pub(crate) scroll_offset: Option<Rc<RefCell<Point<Pixels>>>>,
     pub(crate) active_tooltip: Option<Rc<RefCell<Option<ActiveTooltip>>>>,
+    pub(crate) prev_bounds: Option<Bounds<Pixels>>,
 }
 
 /// Whether or not the element or a group that contains it is clicked by the mouse.
