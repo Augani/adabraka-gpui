@@ -606,7 +606,7 @@ version = "0.8.6"
 version = "0.24"
 
 [target.'cfg(target_os = "macos")'.dependencies.core-text]
-version = "21"
+version = "=21.0.0"
 
 [target.'cfg(target_os = "macos")'.dependencies.core-video]
 version = "0.4.3"
