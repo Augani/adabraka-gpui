@@ -948,6 +948,7 @@ impl Window {
             window_decorations,
             #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
             tabbing_identifier,
+            mouse_passthrough,
         } = options;
 
         let bounds = window_bounds
@@ -968,6 +969,7 @@ impl Window {
                 window_min_size,
                 #[cfg(target_os = "macos")]
                 tabbing_identifier,
+                mouse_passthrough,
             },
         )?;
 
@@ -4130,6 +4132,26 @@ impl Window {
     /// Minimize the current window at the platform level.
     pub fn minimize_window(&self) {
         self.platform_window.minimize();
+    }
+
+    /// Show the current window at the platform level.
+    pub fn show_window(&self) {
+        self.platform_window.show();
+    }
+
+    /// Hide the current window at the platform level.
+    pub fn hide_window(&self) {
+        self.platform_window.hide();
+    }
+
+    /// Returns whether the current window is visible at the platform level.
+    pub fn is_window_visible(&self) -> bool {
+        self.platform_window.is_visible()
+    }
+
+    /// Set whether mouse events should pass through the current window.
+    pub fn set_mouse_passthrough(&self, passthrough: bool) {
+        self.platform_window.set_mouse_passthrough(passthrough);
     }
 
     /// Toggle full screen status on the current window at the platform level.

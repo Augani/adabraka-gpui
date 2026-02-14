@@ -274,6 +274,46 @@ pub(crate) trait Platform: 'static {
     fn keyboard_layout(&self) -> Box<dyn PlatformKeyboardLayout>;
     fn keyboard_mapper(&self) -> Rc<dyn PlatformKeyboardMapper>;
     fn on_keyboard_layout_change(&self, callback: Box<dyn FnMut()>);
+
+    fn set_tray_icon(&self, _icon: Option<&[u8]>) {}
+    fn set_tray_menu(&self, _menu: Vec<TrayMenuItem>) {}
+    fn set_tray_tooltip(&self, _tooltip: &str) {}
+    fn on_tray_icon_event(&self, _callback: Box<dyn FnMut(TrayIconEvent)>) {}
+
+    fn register_global_hotkey(&self, _id: u32, _keystroke: &Keystroke) -> Result<()> {
+        Err(anyhow::anyhow!("Global hotkeys not supported on this platform"))
+    }
+    fn unregister_global_hotkey(&self, _id: u32) {}
+    fn on_global_hotkey(&self, _callback: Box<dyn FnMut(u32)>) {}
+
+    fn focused_window_info(&self) -> Option<FocusedWindowInfo> {
+        None
+    }
+
+    fn accessibility_status(&self) -> PermissionStatus {
+        PermissionStatus::Granted
+    }
+    fn request_accessibility_permission(&self) {}
+
+    fn microphone_status(&self) -> PermissionStatus {
+        PermissionStatus::Granted
+    }
+    fn request_microphone_permission(&self, callback: Box<dyn FnOnce(bool)>) {
+        callback(true);
+    }
+
+    fn set_auto_launch(&self, _app_id: &str, _enabled: bool) -> Result<()> {
+        Err(anyhow::anyhow!("Auto-launch not supported on this platform"))
+    }
+    fn is_auto_launch_enabled(&self, _app_id: &str) -> bool {
+        false
+    }
+
+    fn show_notification(&self, _title: &str, _body: &str) -> Result<()> {
+        Err(anyhow::anyhow!("Notifications not supported on this platform"))
+    }
+
+    fn set_keep_alive_without_windows(&self, _keep_alive: bool) {}
 }
 
 /// A handle to a platform's display, e.g. a monitor or laptop screen.
@@ -549,6 +589,11 @@ pub(crate) trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     fn gpu_specs(&self) -> Option<GpuSpecs>;
 
     fn update_ime_position(&self, _bounds: Bounds<Pixels>);
+
+    fn show(&self) {}
+    fn hide(&self) {}
+    fn is_visible(&self) -> bool { true }
+    fn set_mouse_passthrough(&self, _passthrough: bool) {}
 
     #[cfg(any(test, feature = "test-support"))]
     fn as_test(&mut self) -> Option<&mut TestWindow> {
@@ -1134,6 +1179,9 @@ pub struct WindowOptions {
 
     /// Tab group name, allows opening the window as a native tab on macOS 10.12+. Windows with the same tabbing identifier will be grouped together.
     pub tabbing_identifier: Option<String>,
+
+    /// Whether the window should allow mouse events to pass through to windows behind it
+    pub mouse_passthrough: bool,
 }
 
 /// The variables that can be configured when creating a new window
@@ -1183,6 +1231,9 @@ pub(crate) struct WindowParams {
     pub window_min_size: Option<Size<Pixels>>,
     #[cfg(target_os = "macos")]
     pub tabbing_identifier: Option<String>,
+
+    #[allow(dead_code)]
+    pub mouse_passthrough: bool,
 }
 
 /// Represents the status of how a window should be opened.
@@ -1241,6 +1292,7 @@ impl Default for WindowOptions {
             window_min_size: None,
             window_decorations: None,
             tabbing_identifier: None,
+            mouse_passthrough: false,
         }
     }
 }
@@ -1271,6 +1323,9 @@ pub enum WindowKind {
 
     /// A floating window that appears on top of its parent window
     Floating,
+
+    /// An overlay window that appears above all other windows, including fullscreen apps
+    Overlay,
 }
 
 /// The appearance of the window, as defined by the operating system.
@@ -1325,6 +1380,71 @@ pub enum WindowBackgroundAppearance {
     ///
     /// Not always supported.
     Blurred,
+}
+
+/// Events that can occur on a system tray icon.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TrayIconEvent {
+    /// The user left-clicked the tray icon.
+    LeftClick,
+    /// The user right-clicked the tray icon.
+    RightClick,
+    /// The user double-clicked the tray icon.
+    DoubleClick,
+}
+
+/// A menu item for a system tray context menu.
+#[derive(Debug, Clone)]
+pub enum TrayMenuItem {
+    /// A clickable action item.
+    Action {
+        /// The display label.
+        label: SharedString,
+        /// A unique identifier for this action.
+        id: SharedString,
+    },
+    /// A visual separator between menu items.
+    Separator,
+    /// A submenu containing nested items.
+    Submenu {
+        /// The display label.
+        label: SharedString,
+        /// The nested menu items.
+        items: Vec<TrayMenuItem>,
+    },
+    /// A toggleable menu item with a checkmark.
+    Toggle {
+        /// The display label.
+        label: SharedString,
+        /// Whether the item is currently checked.
+        checked: bool,
+        /// A unique identifier for this toggle.
+        id: SharedString,
+    },
+}
+
+/// Information about the currently focused window from any application.
+#[derive(Debug, Clone)]
+pub struct FocusedWindowInfo {
+    /// The name of the application that owns the focused window.
+    pub app_name: String,
+    /// The title of the focused window.
+    pub window_title: String,
+    /// The bundle identifier of the application (macOS only).
+    pub bundle_id: Option<String>,
+    /// The process ID of the application.
+    pub pid: Option<u32>,
+}
+
+/// The status of a system permission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionStatus {
+    /// Permission has been granted.
+    Granted,
+    /// Permission has been denied.
+    Denied,
+    /// Permission has not yet been requested.
+    NotDetermined,
 }
 
 /// The options that can be configured for a file dialog prompt

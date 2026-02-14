@@ -36,12 +36,13 @@ use crate::InspectorElementRegistry;
 use crate::{
     Action, ActionBuildError, ActionRegistry, Any, AnyView, AnyWindowHandle, AppContext, Asset,
     AssetSource, BackgroundExecutor, Bounds, ClipboardItem, CursorStyle, DispatchPhase, DisplayId,
-    EventEmitter, FocusHandle, FocusMap, ForegroundExecutor, Global, KeyBinding, KeyContext,
-    Keymap, Keystroke, LayoutId, Menu, MenuItem, OwnedMenu, PathPromptOptions, Pixels, Platform,
-    PlatformDisplay, PlatformKeyboardLayout, PlatformKeyboardMapper, Point, PromptBuilder,
-    PromptButton, PromptHandle, PromptLevel, Render, RenderImage, RenderablePromptHandle,
-    Reservation, ScreenCaptureSource, SharedString, SubscriberSet, Subscription, SvgRenderer, Task,
-    TextSystem, Window, WindowAppearance, WindowHandle, WindowId, WindowInvalidator,
+    EventEmitter, FocusHandle, FocusMap, FocusedWindowInfo, ForegroundExecutor, Global, KeyBinding,
+    KeyContext, Keymap, Keystroke, LayoutId, Menu, MenuItem, OwnedMenu, PathPromptOptions,
+    PermissionStatus, Pixels, Platform, PlatformDisplay, PlatformKeyboardLayout,
+    PlatformKeyboardMapper, Point, PromptBuilder, PromptButton, PromptHandle, PromptLevel, Render,
+    RenderImage, RenderablePromptHandle, Reservation, ScreenCaptureSource, SharedString,
+    SubscriberSet, Subscription, SvgRenderer, Task, TextSystem, TrayIconEvent, TrayMenuItem,
+    Window, WindowAppearance, WindowHandle, WindowId, WindowInvalidator,
     colors::{Colors, GlobalColors},
     current_platform, hash, init_app_menus,
 };
@@ -996,6 +997,86 @@ impl App {
     /// Unhide other applications at the platform level.
     pub fn unhide_other_apps(&self) {
         self.platform.unhide_other_apps();
+    }
+
+    /// Set the system tray icon.
+    pub fn set_tray_icon(&self, icon: Option<&[u8]>) {
+        self.platform.set_tray_icon(icon);
+    }
+
+    /// Set the system tray menu items.
+    pub fn set_tray_menu(&self, menu: Vec<TrayMenuItem>) {
+        self.platform.set_tray_menu(menu);
+    }
+
+    /// Set the system tray tooltip.
+    pub fn set_tray_tooltip(&self, tooltip: &str) {
+        self.platform.set_tray_tooltip(tooltip);
+    }
+
+    /// Register a callback for system tray icon events.
+    pub fn on_tray_icon_event(&self, callback: impl FnMut(TrayIconEvent) + 'static) {
+        self.platform.on_tray_icon_event(Box::new(callback));
+    }
+
+    /// Register a global hotkey with the given ID and keystroke.
+    pub fn register_global_hotkey(&self, id: u32, keystroke: &Keystroke) -> Result<()> {
+        self.platform.register_global_hotkey(id, keystroke)
+    }
+
+    /// Unregister a previously registered global hotkey.
+    pub fn unregister_global_hotkey(&self, id: u32) {
+        self.platform.unregister_global_hotkey(id);
+    }
+
+    /// Register a callback for global hotkey events.
+    pub fn on_global_hotkey(&self, callback: impl FnMut(u32) + 'static) {
+        self.platform.on_global_hotkey(Box::new(callback));
+    }
+
+    /// Get information about the currently focused window from any application.
+    pub fn focused_window_info(&self) -> Option<FocusedWindowInfo> {
+        self.platform.focused_window_info()
+    }
+
+    /// Check accessibility permission status.
+    pub fn accessibility_status(&self) -> PermissionStatus {
+        self.platform.accessibility_status()
+    }
+
+    /// Request accessibility permission from the user.
+    pub fn request_accessibility_permission(&self) {
+        self.platform.request_accessibility_permission();
+    }
+
+    /// Check microphone permission status.
+    pub fn microphone_status(&self) -> PermissionStatus {
+        self.platform.microphone_status()
+    }
+
+    /// Request microphone permission from the user.
+    pub fn request_microphone_permission(&self, callback: impl FnOnce(bool) + 'static) {
+        self.platform.request_microphone_permission(Box::new(callback));
+    }
+
+    /// Set whether the application should auto-launch at login.
+    pub fn set_auto_launch(&self, app_id: &str, enabled: bool) -> Result<()> {
+        self.platform.set_auto_launch(app_id, enabled)
+    }
+
+    /// Check whether the application is set to auto-launch at login.
+    pub fn is_auto_launch_enabled(&self, app_id: &str) -> bool {
+        self.platform.is_auto_launch_enabled(app_id)
+    }
+
+    /// Show an OS notification.
+    pub fn show_notification(&self, title: &str, body: &str) -> Result<()> {
+        self.platform.show_notification(title, body)
+    }
+
+    /// Set whether the application should stay alive when all windows are closed.
+    pub fn set_keep_alive_without_windows(&self, keep_alive: bool) {
+        self.platform.set_keep_alive_without_windows(keep_alive);
     }
 
     /// Returns the list of currently active displays.

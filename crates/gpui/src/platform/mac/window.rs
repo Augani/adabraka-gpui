@@ -582,6 +582,7 @@ impl MacWindow {
             display_id,
             window_min_size,
             tabbing_identifier,
+            mouse_passthrough: _,
         }: WindowParams,
         executor: ForegroundExecutor,
         renderer_context: renderer::Context,
@@ -619,7 +620,7 @@ impl MacWindow {
 
             let native_window: id = match kind {
                 WindowKind::Normal | WindowKind::Floating => msg_send![WINDOW_CLASS, alloc],
-                WindowKind::PopUp => {
+                WindowKind::PopUp | WindowKind::Overlay => {
                     style_mask |= NSWindowStyleMaskNonactivatingPanel;
                     msg_send![PANEL_CLASS, alloc]
                 }
@@ -809,6 +810,29 @@ impl MacWindow {
                     ];
                     native_window.setCollectionBehavior_(
                         NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces |
+                        NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary
+                    );
+                }
+                WindowKind::Overlay => {
+                    let tracking_area: id = msg_send![class!(NSTrackingArea), alloc];
+                    let _: () = msg_send![
+                        tracking_area,
+                        initWithRect: NSRect::new(NSPoint::new(0., 0.), NSSize::new(0., 0.))
+                        options: NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved | NSTrackingActiveAlways | NSTrackingInVisibleRect
+                        owner: native_view
+                        userInfo: nil
+                    ];
+                    let _: () =
+                        msg_send![native_view, addTrackingArea: tracking_area.autorelease()];
+
+                    let _: () = msg_send![native_window, setLevel: 25_isize];
+                    let _: () = msg_send![
+                        native_window,
+                        setAnimationBehavior: NSWindowAnimationBehaviorUtilityWindow
+                    ];
+                    native_window.setCollectionBehavior_(
+                        NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces |
+                        NSWindowCollectionBehavior::NSWindowCollectionBehaviorStationary |
                         NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary
                     );
                 }
