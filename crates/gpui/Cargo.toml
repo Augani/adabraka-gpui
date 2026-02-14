@@ -5,13 +5,15 @@ version = "0.4.0"
 authors = ["Adabraka Team"]
 build = "build.rs"
 publish = true
-description = "Adabraka's GPU-accelerated UI framework (fork of GPUI from Zed - github.com/zed-industries/zed)"
-homepage = "https://gpui.rs"
+description = "GPU-accelerated UI framework with system tray, global hotkeys, notifications, and daemon mode support (fork of Zed's GPUI)"
+homepage = "https://github.com/Augani/adabraka-gpui"
 readme = "README.md"
 keywords = [
-    "desktop",
     "gui",
-    "immediate",
+    "desktop",
+    "tray",
+    "gpu",
+    "daemon",
 ]
 categories = ["gui"]
 license = "Apache-2.0"

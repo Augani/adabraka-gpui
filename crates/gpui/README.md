@@ -1,66 +1,109 @@
-# Welcome to GPUI!
+# Adabraka GPUI
 
-GPUI is a hybrid immediate and retained mode, GPU accelerated, UI framework
-for Rust, designed to support a wide variety of applications.
+A GPU-accelerated UI framework for Rust, forked from [Zed's GPUI](https://github.com/zed-industries/zed). Adabraka GPUI extends the original framework with daemon-mode capabilities, system tray integration, global hotkeys, native notifications, and more — making it suitable for background apps, menu bar utilities, and overlay tools.
 
 ## Getting Started
 
-GPUI is still in active development as we work on the Zed code editor, and is still pre-1.0. There will often be breaking changes between versions. You'll also need to use the latest version of stable Rust and be on macOS or Linux. Add the following to your `Cargo.toml`:
+Add the following to your `Cargo.toml`:
 
 ```toml
-gpui = { version = "*" }
+adabraka-gpui = "0.4"
 ```
 
- - [Ownership and data flow](_ownership_and_data_flow)
+### Platform Support
 
-Everything in GPUI starts with an `Application`. You can create one with `Application::new()`, and kick off your application by passing a callback to `Application::run()`. Inside this callback, you can create a new window with `App::open_window()`, and register your first root view. See [gpui.rs](https://www.gpui.rs/) for a complete example.
+| Feature | macOS | Linux (X11) | Linux (Wayland) | Windows |
+|---|---|---|---|---|
+| GPU-accelerated rendering | Metal | Vulkan/OpenGL | Vulkan/OpenGL | DirectX |
+| System tray icon & menu | Yes | Yes (DBus/SNI) | Yes (DBus/SNI) | Yes (Shell_NotifyIcon) |
+| Tray menu actions | Yes | Yes | Yes | Yes |
+| Global hotkeys | Yes | Yes (XGrabKey) | No (protocol limitation) | Yes (RegisterHotKey) |
+| Native notifications | Yes (UNUserNotification) | Yes (notify-rust) | Yes (notify-rust) | Yes (Shell balloon) |
+| Overlay windows (always-on-top) | Yes | Yes | Partial (no layer-shell) | Yes |
+| Click-through windows | Yes | Yes (Shape ext) | Yes (wl_region) | Yes (WS_EX_TRANSPARENT) |
+| Window show/hide | Yes | Yes | Yes | Yes |
+| Auto-launch at login | Yes (SMAppService) | Yes (XDG autostart) | Yes (XDG autostart) | Yes (Registry) |
+| Single instance lock | Yes (Unix socket) | Yes (Unix socket) | Yes (Unix socket) | Yes (Named mutex) |
+| Focused window info | Yes (Accessibility) | Yes (EWMH) | No | Yes (Win32) |
+| Permission queries | Yes (Accessibility, Mic) | No | No | No |
+| Daemon mode (no dock icon) | Yes (Accessory policy) | Yes | Yes | Yes |
 
-### Dependencies
+## Features
 
-GPUI has various system dependencies that it needs in order to work.
+### Core UI Framework (inherited from GPUI)
+- Hybrid immediate/retained mode rendering
+- GPU-accelerated with Metal, Vulkan, OpenGL, and DirectX backends
+- Tailwind-style layout and styling API
+- Entity-based state management
+- Declarative views with the `Render` trait
+- Low-level `Element` API for custom rendering
+- Async executor integrated with the platform event loop
+- Action system for keyboard shortcuts
+- Test framework with `#[gpui::test]`
 
-#### macOS
+### Daemon & Background App Support (new in Adabraka)
+- **System tray** — icon, tooltip, and nested menus with action callbacks
+- **Global hotkeys** — register system-wide keyboard shortcuts
+- **Native notifications** — OS-level notifications on all platforms
+- **Overlay windows** — always-on-top transparent windows
+- **Click-through windows** — mouse events pass through to windows below
+- **Window show/hide** — programmatic visibility control
+- **Auto-launch** — register your app to start at login
+- **Single instance** — prevent multiple copies with activation signaling
+- **Keep alive without windows** — app runs with no visible windows
+- **Focused window info** — query which window the user is focused on
+- **Permission status** — check accessibility and microphone permissions
+- **In-app toast notifications** — stackable, auto-dismissing toast component
 
-On macOS, GPUI uses Metal for rendering. In order to use Metal, you need to do the following:
+## Quick Example
 
-- Install [Xcode](https://apps.apple.com/us/app/xcode/id497799835?mt=12) from the macOS App Store, or from the [Apple Developer](https://developer.apple.com/download/all/) website. Note this requires a developer account.
+```rust
+use gpui::{App, Application, TrayMenuItem};
 
-> Ensure you launch Xcode after installing, and install the macOS components, which is the default option.
+fn main() {
+    Application::new().run(|cx: &mut App| {
+        cx.set_keep_alive_without_windows(true);
+        cx.set_tray_tooltip("My App");
 
-- Install [Xcode command line tools](https://developer.apple.com/xcode/resources/)
+        cx.set_tray_menu(vec![
+            TrayMenuItem::Action {
+                label: "Settings".into(),
+                id: "settings".into(),
+            },
+            TrayMenuItem::Separator,
+            TrayMenuItem::Action {
+                label: "Quit".into(),
+                id: "quit".into(),
+            },
+        ]);
 
-  ```sh
-  xcode-select --install
-  ```
+        cx.on_tray_menu_action(|id, cx| match id.as_ref() {
+            "quit" => cx.quit(),
+            _ => {}
+        });
+    });
+}
+```
 
-- Ensure that the Xcode command line tools are using your newly installed copy of Xcode:
+## Dependencies
 
-  ```sh
-  sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
-  ```
+### macOS
 
-## The Big Picture
+- [Xcode](https://apps.apple.com/us/app/xcode/id497799835?mt=12) with macOS components
+- Xcode command line tools: `xcode-select --install`
 
-GPUI offers three different [registers](<https://en.wikipedia.org/wiki/Register_(sociolinguistics)>) depending on your needs:
+### Linux
 
-- State management and communication with `Entity`'s. Whenever you need to store application state that communicates between different parts of your application, you'll want to use GPUI's entities. Entities are owned by GPUI and are only accessible through an owned smart pointer similar to an `Rc`. See the `app::context` module for more information.
+- Standard development packages for your distro
+- For X11: `libxcb`, `libxkbcommon`
+- For Wayland: `libwayland-client`, `libxkbcommon`
+- D-Bus (for system tray via StatusNotifierItem)
 
-- High level, declarative UI with views. All UI in GPUI starts with a view. A view is simply an `Entity` that can be rendered, by implementing the `Render` trait. At the start of each frame, GPUI will call this render method on the root view of a given window. Views build a tree of `elements`, lay them out and style them with a tailwind-style API, and then give them to GPUI to turn into pixels. See the `div` element for an all purpose swiss-army knife of rendering.
+### Windows
 
-- Low level, imperative UI with Elements. Elements are the building blocks of UI in GPUI, and they provide a nice wrapper around an imperative API that provides as much flexibility and control as you need. Elements have total control over how they and their child elements are rendered and can be used for making efficient views into large lists, implement custom layouting for a code editor, and anything else you can think of. See the `element` module for more information.
+- Visual Studio Build Tools with C++ workload
+- Windows SDK
 
-Each of these registers has one or more corresponding contexts that can be accessed from all GPUI services. This context is your main interface to GPUI, and is used extensively throughout the framework.
+## License
 
-## Other Resources
-
-In addition to the systems above, GPUI provides a range of smaller services that are useful for building complex applications:
-
-- Actions are user-defined structs that are used for converting keystrokes into logical operations in your UI. Use this for implementing keyboard shortcuts, such as cmd-q. See the `action` module for more information.
-
-- Platform services, such as `quit the app` or `open a URL` are available as methods on the `app::App`.
-
-- An async executor that is integrated with the platform's event loop. See the `executor` module for more information.,
-
-- The `[gpui::test]` macro provides a convenient way to write tests for your GPUI applications. Tests also have their own kind of context, a `TestAppContext` which provides ways of simulating common platform input. See `app::test_context` and `test` modules for more details.
-
-Currently, the best way to learn about these APIs is to read the Zed source code, ask us about it at a fireside hack, or drop a question in the [Zed Discord](https://zed.dev/community-links). We're working on improving the documentation, creating more examples, and will be publishing more guides to GPUI on our [blog](https://zed.dev/blog).
+Apache-2.0
