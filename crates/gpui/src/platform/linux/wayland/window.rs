@@ -114,6 +114,7 @@ pub struct WaylandWindowState {
     in_progress_window_controls: Option<WindowControls>,
     window_controls: WindowControls,
     client_inset: Option<Pixels>,
+    visible: bool,
 }
 
 #[derive(Clone)]
@@ -189,6 +190,7 @@ impl WaylandWindowState {
             in_progress_window_controls: None,
             window_controls: WindowControls::default(),
             client_inset: None,
+            visible: true,
         })
     }
 
@@ -287,7 +289,7 @@ impl WaylandWindow {
             .get_xdg_surface(&surface, &globals.qh, surface.id());
         let toplevel = xdg_surface.get_toplevel(&globals.qh, surface.id());
 
-        if params.kind == WindowKind::Floating {
+        if params.kind == WindowKind::Floating || params.kind == WindowKind::Overlay {
             toplevel.set_parent(parent.as_ref());
         }
 
@@ -312,6 +314,8 @@ impl WaylandWindow {
             .as_ref()
             .map(|viewporter| viewporter.get_viewport(&surface, &globals.qh, ()));
 
+        let mouse_passthrough = params.mouse_passthrough;
+
         let this = Self(WaylandWindowStatePtr {
             state: Rc::new(RefCell::new(WaylandWindowState::new(
                 handle,
@@ -328,6 +332,10 @@ impl WaylandWindow {
             )?)),
             callbacks: Rc::new(RefCell::new(Callbacks::default())),
         });
+
+        if mouse_passthrough {
+            this.set_mouse_passthrough(true);
+        }
 
         // Kick things off
         surface.commit();
@@ -1096,6 +1104,35 @@ impl PlatformWindow for WaylandWindow {
 
     fn gpu_specs(&self) -> Option<GpuSpecs> {
         self.borrow().renderer.gpu_specs().into()
+    }
+
+    fn show(&self) {
+        let mut state = self.borrow_mut();
+        state.visible = true;
+        state.surface.commit();
+    }
+
+    fn hide(&self) {
+        let mut state = self.borrow_mut();
+        state.visible = false;
+        state.surface.attach(None, 0, 0);
+        state.surface.commit();
+    }
+
+    fn is_visible(&self) -> bool {
+        self.borrow().visible
+    }
+
+    fn set_mouse_passthrough(&self, passthrough: bool) {
+        let state = self.borrow();
+        if passthrough {
+            let region = state.globals.compositor.create_region(&state.globals.qh, ());
+            state.surface.set_input_region(Some(&region));
+            region.destroy();
+        } else {
+            state.surface.set_input_region(None);
+        }
+        state.surface.commit();
     }
 }
 

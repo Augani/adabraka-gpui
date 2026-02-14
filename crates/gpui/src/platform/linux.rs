@@ -1,9 +1,13 @@
+mod auto_launch;
 mod dispatcher;
+mod global_hotkey;
 mod headless;
 mod keyboard;
+mod notifications;
 mod platform;
 #[cfg(any(feature = "wayland", feature = "x11"))]
 mod text_system;
+mod tray;
 #[cfg(feature = "wayland")]
 mod wayland;
 #[cfg(feature = "x11")]

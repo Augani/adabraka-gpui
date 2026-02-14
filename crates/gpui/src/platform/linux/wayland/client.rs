@@ -384,7 +384,7 @@ impl WaylandClientStatePtr {
         {
             state.keyboard_focused_window = Some(window);
         }
-        if state.windows.is_empty() {
+        if state.windows.is_empty() && !state.common.keep_alive_without_windows {
             state.common.signal.stop();
         }
     }

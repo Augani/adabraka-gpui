@@ -66,6 +66,7 @@ x11rb::atom_manager! {
         _NET_WM_STATE_FULLSCREEN,
         _NET_WM_STATE_HIDDEN,
         _NET_WM_STATE_FOCUSED,
+        _NET_WM_STATE_ABOVE,
         _NET_ACTIVE_WINDOW,
         _NET_WM_SYNC_REQUEST,
         _NET_WM_SYNC_REQUEST_COUNTER,
@@ -74,6 +75,7 @@ x11rb::atom_manager! {
         _NET_WM_WINDOW_TYPE,
         _NET_WM_WINDOW_TYPE_NOTIFICATION,
         _NET_WM_WINDOW_TYPE_DIALOG,
+        _NET_WM_WINDOW_TYPE_DOCK,
         _NET_WM_SYNC,
         _NET_SUPPORTED,
         _MOTIF_WM_HINTS,
@@ -574,6 +576,46 @@ impl X11WindowState {
                         atoms._NET_WM_WINDOW_TYPE,
                         xproto::AtomEnum::ATOM,
                         &[atoms._NET_WM_WINDOW_TYPE_DIALOG],
+                    ),
+                )?;
+            }
+
+            if params.kind == WindowKind::Overlay {
+                check_reply(
+                    || "X11 ChangeProperty32 setting window type for overlay failed.",
+                    xcb.change_property32(
+                        xproto::PropMode::REPLACE,
+                        x_window,
+                        atoms._NET_WM_WINDOW_TYPE,
+                        xproto::AtomEnum::ATOM,
+                        &[atoms._NET_WM_WINDOW_TYPE_DOCK],
+                    ),
+                )?;
+                check_reply(
+                    || "X11 ChangeProperty32 setting _NET_WM_STATE_ABOVE for overlay failed.",
+                    xcb.change_property32(
+                        xproto::PropMode::REPLACE,
+                        x_window,
+                        atoms._NET_WM_STATE,
+                        xproto::AtomEnum::ATOM,
+                        &[atoms._NET_WM_STATE_ABOVE],
+                    ),
+                )?;
+            }
+
+            if params.mouse_passthrough {
+                use x11rb::protocol::shape::{self, ConnectionExt as _};
+                check_reply(
+                    || "X11 shape::rectangles for mouse passthrough failed.",
+                    shape::rectangles(
+                        xcb.as_ref(),
+                        shape::SO::SET,
+                        shape::SK::INPUT,
+                        xproto::ClipOrdering::UNSORTED,
+                        x_window,
+                        0,
+                        0,
+                        &[],
                     ),
                 )?;
             }
@@ -1666,5 +1708,56 @@ impl PlatformWindow for X11Window {
 
     fn gpu_specs(&self) -> Option<GpuSpecs> {
         self.0.state.borrow().renderer.gpu_specs().into()
+    }
+
+    fn show(&self) {
+        self.0
+            .xcb
+            .map_window(self.0.x_window)
+            .log_err();
+        xcb_flush(&self.0.xcb);
+        self.0.state.borrow_mut().hidden = false;
+    }
+
+    fn hide(&self) {
+        self.0
+            .xcb
+            .unmap_window(self.0.x_window)
+            .log_err();
+        xcb_flush(&self.0.xcb);
+        self.0.state.borrow_mut().hidden = true;
+    }
+
+    fn is_visible(&self) -> bool {
+        !self.0.state.borrow().hidden
+    }
+
+    fn set_mouse_passthrough(&self, passthrough: bool) {
+        use x11rb::protocol::shape::{self, ConnectionExt as _};
+        if passthrough {
+            shape::rectangles(
+                self.0.xcb.as_ref(),
+                shape::SO::SET,
+                shape::SK::INPUT,
+                xproto::ClipOrdering::UNSORTED,
+                self.0.x_window,
+                0,
+                0,
+                &[],
+            )
+            .log_err();
+        } else {
+            shape::mask(
+                self.0.xcb.as_ref(),
+                shape::SO::SET,
+                shape::SK::INPUT,
+                self.0.x_window,
+                0,
+                0,
+                x11rb::NONE,
+            )
+            .log_err();
+        }
+        xcb_flush(&self.0.xcb);
     }
 }

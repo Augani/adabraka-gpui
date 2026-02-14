@@ -24,9 +24,10 @@ use xkbcommon::xkb::{self, Keycode, Keysym, State};
 
 use crate::{
     Action, AnyWindowHandle, BackgroundExecutor, ClipboardItem, CursorStyle, DisplayId,
-    ForegroundExecutor, Keymap, LinuxDispatcher, Menu, MenuItem, OwnedMenu, PathPromptOptions,
-    Pixels, Platform, PlatformDisplay, PlatformKeyboardLayout, PlatformKeyboardMapper,
-    PlatformTextSystem, PlatformWindow, Point, Result, Task, WindowAppearance, WindowParams, px,
+    FocusedWindowInfo, ForegroundExecutor, Keymap, Keystroke, LinuxDispatcher, Menu, MenuItem,
+    OwnedMenu, PathPromptOptions, Pixels, Platform, PlatformDisplay, PlatformKeyboardLayout,
+    PlatformKeyboardMapper, PlatformTextSystem, PlatformWindow, Point, Result, Task,
+    TrayIconEvent, TrayMenuItem, WindowAppearance, WindowParams, px,
 };
 
 #[cfg(any(feature = "wayland", feature = "x11"))]
@@ -74,6 +75,18 @@ pub trait LinuxClient {
     fn window_stack(&self) -> Option<Vec<AnyWindowHandle>>;
     fn run(&self);
 
+    fn focused_window_info(&self) -> Option<FocusedWindowInfo> {
+        None
+    }
+
+    fn set_tray_icon(&self, _icon: Option<&[u8]>) {}
+    fn set_tray_menu(&self, _menu: Vec<TrayMenuItem>) {}
+    fn set_tray_tooltip(&self, _tooltip: &str) {}
+    fn register_global_hotkey(&self, _id: u32, _keystroke: &Keystroke) -> Result<()> {
+        Err(anyhow::anyhow!("Global hotkeys not supported on this platform"))
+    }
+    fn unregister_global_hotkey(&self, _id: u32) {}
+
     #[cfg(any(feature = "wayland", feature = "x11"))]
     fn window_identifier(
         &self,
@@ -91,6 +104,8 @@ pub(crate) struct PlatformHandlers {
     pub(crate) will_open_app_menu: Option<Box<dyn FnMut()>>,
     pub(crate) validate_app_menu_command: Option<Box<dyn FnMut(&dyn Action) -> bool>>,
     pub(crate) keyboard_layout_change: Option<Box<dyn FnMut()>>,
+    pub(crate) tray_icon_event: Option<Box<dyn FnMut(TrayIconEvent)>>,
+    pub(crate) global_hotkey: Option<Box<dyn FnMut(u32)>>,
 }
 
 pub(crate) struct LinuxCommon {
@@ -102,6 +117,7 @@ pub(crate) struct LinuxCommon {
     pub(crate) callbacks: PlatformHandlers,
     pub(crate) signal: LoopSignal,
     pub(crate) menus: Vec<OwnedMenu>,
+    pub(crate) keep_alive_without_windows: bool,
 }
 
 impl LinuxCommon {
@@ -128,6 +144,7 @@ impl LinuxCommon {
             callbacks,
             signal,
             menus: Vec::new(),
+            keep_alive_without_windows: false,
         };
 
         (common, main_receiver)
@@ -590,6 +607,54 @@ impl<P: LinuxClient + 'static> Platform for P {
     }
 
     fn add_recent_document(&self, _path: &Path) {}
+
+    fn set_keep_alive_without_windows(&self, keep_alive: bool) {
+        self.with_common(|common| common.keep_alive_without_windows = keep_alive);
+    }
+
+    fn set_tray_icon(&self, icon: Option<&[u8]>) {
+        LinuxClient::set_tray_icon(self, icon);
+    }
+
+    fn set_tray_menu(&self, menu: Vec<TrayMenuItem>) {
+        LinuxClient::set_tray_menu(self, menu);
+    }
+
+    fn set_tray_tooltip(&self, tooltip: &str) {
+        LinuxClient::set_tray_tooltip(self, tooltip);
+    }
+
+    fn on_tray_icon_event(&self, callback: Box<dyn FnMut(TrayIconEvent)>) {
+        self.with_common(|common| common.callbacks.tray_icon_event = Some(callback));
+    }
+
+    fn register_global_hotkey(&self, id: u32, keystroke: &Keystroke) -> Result<()> {
+        LinuxClient::register_global_hotkey(self, id, keystroke)
+    }
+
+    fn unregister_global_hotkey(&self, id: u32) {
+        LinuxClient::unregister_global_hotkey(self, id);
+    }
+
+    fn on_global_hotkey(&self, callback: Box<dyn FnMut(u32)>) {
+        self.with_common(|common| common.callbacks.global_hotkey = Some(callback));
+    }
+
+    fn focused_window_info(&self) -> Option<FocusedWindowInfo> {
+        LinuxClient::focused_window_info(self)
+    }
+
+    fn set_auto_launch(&self, app_id: &str, enabled: bool) -> Result<()> {
+        crate::platform::linux::auto_launch::set_auto_launch(app_id, enabled)
+    }
+
+    fn is_auto_launch_enabled(&self, app_id: &str) -> bool {
+        crate::platform::linux::auto_launch::is_auto_launch_enabled(app_id)
+    }
+
+    fn show_notification(&self, title: &str, body: &str) -> Result<()> {
+        crate::platform::linux::notifications::show_notification(title, body)
+    }
 }
 
 #[cfg(any(feature = "wayland", feature = "x11"))]

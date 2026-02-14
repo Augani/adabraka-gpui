@@ -547,6 +547,7 @@ features = [
     "xinput",
     "cursor",
     "resource_manager",
+    "shape",
     "sync",
 ]
 optional = true
@@ -567,6 +568,12 @@ features = [
     "x11",
 ]
 optional = true
+
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies.ksni]
+version = "0.2"
+
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies.notify-rust]
+version = "4"
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.build-dependencies.naga]
 version = "25.0"

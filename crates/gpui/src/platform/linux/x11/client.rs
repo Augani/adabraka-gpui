@@ -247,7 +247,7 @@ impl X11ClientStatePtr {
         }
         state.cursor_styles.remove(&x_window);
 
-        if state.windows.is_empty() {
+        if state.windows.is_empty() && !state.common.keep_alive_without_windows {
             state.common.signal.stop();
         }
     }
@@ -1667,6 +1667,85 @@ impl LinuxClient for X11Client {
             .map(|window| window.window.x_window as u64)
             .map(|x_window| std::future::ready(Some(WindowIdentifier::from_xid(x_window))))
             .unwrap_or(std::future::ready(None))
+    }
+
+    fn focused_window_info(&self) -> Option<crate::FocusedWindowInfo> {
+        let state = self.0.borrow();
+        let root = state.xcb_connection.setup().roots[state.x_root_index].root;
+
+        let active_window_reply = state
+            .xcb_connection
+            .get_property(
+                false,
+                root,
+                state.atoms._NET_ACTIVE_WINDOW,
+                xproto::AtomEnum::WINDOW,
+                0,
+                1,
+            )
+            .ok()?
+            .reply()
+            .ok()?;
+
+        let active_xid = active_window_reply
+            .value
+            .chunks_exact(4)
+            .next()
+            .and_then(|chunk| chunk.try_into().ok().map(u32::from_ne_bytes))?;
+
+        if active_xid == 0 {
+            return None;
+        }
+
+        let title = state
+            .xcb_connection
+            .get_property(
+                false,
+                active_xid,
+                state.atoms._NET_WM_NAME,
+                state.atoms.UTF8_STRING,
+                0,
+                u32::MAX,
+            )
+            .ok()
+            .and_then(|cookie| cookie.reply().ok())
+            .and_then(|reply| String::from_utf8(reply.value).ok())
+            .unwrap_or_default();
+
+        let pid = state
+            .xcb_connection
+            .get_property(
+                false,
+                active_xid,
+                state.atoms._NET_WM_PID,
+                xproto::AtomEnum::CARDINAL,
+                0,
+                1,
+            )
+            .ok()
+            .and_then(|cookie| cookie.reply().ok())
+            .and_then(|reply| {
+                reply
+                    .value
+                    .chunks_exact(4)
+                    .next()
+                    .and_then(|chunk| chunk.try_into().ok().map(u32::from_ne_bytes))
+            });
+
+        let app_name = pid
+            .and_then(|pid| {
+                std::fs::read_to_string(format!("/proc/{}/comm", pid))
+                    .ok()
+                    .map(|s| s.trim().to_string())
+            })
+            .unwrap_or_default();
+
+        Some(crate::FocusedWindowInfo {
+            app_name,
+            window_title: title,
+            bundle_id: None,
+            pid,
+        })
     }
 }
 
