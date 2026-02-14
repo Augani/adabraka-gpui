@@ -237,6 +237,7 @@ pub(crate) struct WaylandClientState {
     pending_activation: Option<PendingActivation>,
     event_loop: Option<EventLoop<'static, WaylandClientStatePtr>>,
     common: LinuxCommon,
+    tray: crate::platform::linux::tray::LinuxTray,
 }
 
 pub struct DragState {
@@ -615,6 +616,7 @@ impl WaylandClient {
             cursor,
             pending_activation: None,
             event_loop: Some(event_loop),
+            tray: crate::platform::linux::tray::LinuxTray::new(),
         }));
 
         WaylandSource::new(conn, event_queue)
@@ -876,6 +878,24 @@ impl LinuxClient for WaylandClient {
         let active_window = client_state.keyboard_focused_window.as_ref();
         inner(active_window.map(|aw| aw.surface()))
     }
+
+    fn set_tray_icon(&self, icon: Option<&[u8]>) {
+        self.0.borrow_mut().tray.set_icon(icon);
+    }
+
+    fn set_tray_menu(&self, menu: Vec<crate::TrayMenuItem>) {
+        self.0.borrow_mut().tray.set_menu(menu);
+    }
+
+    fn set_tray_tooltip(&self, tooltip: &str) {
+        self.0.borrow_mut().tray.set_tooltip(tooltip);
+    }
+
+    fn register_global_hotkey(&self, _id: u32, _keystroke: &Keystroke) -> crate::Result<()> {
+        Err(anyhow::anyhow!("Global hotkeys not supported on Wayland"))
+    }
+
+    fn unregister_global_hotkey(&self, _id: u32) {}
 }
 
 impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for WaylandClientStatePtr {

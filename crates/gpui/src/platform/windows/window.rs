@@ -878,10 +878,19 @@ impl PlatformWindow for WindowsWindow {
             let new_style = if passthrough {
                 ex_style | (WS_EX_TRANSPARENT.0 as i32) | (WS_EX_LAYERED.0 as i32)
             } else {
-                ex_style & !(WS_EX_TRANSPARENT.0 as i32)
+                ex_style & !(WS_EX_TRANSPARENT.0 as i32) & !(WS_EX_LAYERED.0 as i32)
             };
             if new_style != ex_style {
                 let _ = SetWindowLongW(self.0.hwnd, GWL_EXSTYLE, new_style);
+                let _ = SetWindowPos(
+                    self.0.hwnd,
+                    None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+                );
             }
         }
     }

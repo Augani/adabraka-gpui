@@ -293,6 +293,13 @@ impl WaylandWindow {
             toplevel.set_parent(parent.as_ref());
         }
 
+        if params.kind == WindowKind::Overlay {
+            log::warn!(
+                "Wayland: WindowKind::Overlay does not support true always-on-top. \
+                 Always-on-top requires compositor support (e.g. wlr-layer-shell protocol)."
+            );
+        }
+
         if let Some(size) = params.window_min_size {
             toplevel.set_min_size(size.width.0 as i32, size.height.0 as i32);
         }
@@ -1109,6 +1116,7 @@ impl PlatformWindow for WaylandWindow {
     fn show(&self) {
         let mut state = self.borrow_mut();
         state.visible = true;
+        state.surface.frame(&state.globals.qh, state.surface.id());
         state.surface.commit();
     }
 

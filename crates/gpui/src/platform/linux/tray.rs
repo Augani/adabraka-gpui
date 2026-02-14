@@ -1,11 +1,19 @@
 #![allow(dead_code)]
 
+use std::sync::{Arc, Mutex};
+
 use crate::platform::TrayMenuItem;
+use crate::{SharedString, TrayIconEvent};
+
+type TrayActionCallback = Arc<Mutex<Option<Box<dyn Fn(SharedString) + Send>>>>;
+type TrayClickCallback = Arc<Mutex<Option<Box<dyn Fn(TrayIconEvent) + Send>>>>;
 
 struct GpuiTray {
     icon_data: Vec<u8>,
     tooltip: String,
     menu_items: Vec<TrayMenuItem>,
+    action_callback: TrayActionCallback,
+    click_callback: TrayClickCallback,
 }
 
 impl ksni::Tray for GpuiTray {
@@ -46,29 +54,62 @@ impl ksni::Tray for GpuiTray {
         }
     }
 
+    fn activate(&mut self, _x: i32, _y: i32) {
+        if let Ok(guard) = self.click_callback.lock() {
+            if let Some(ref cb) = *guard {
+                cb(TrayIconEvent::LeftClick);
+            }
+        }
+    }
+
+    fn secondary_activate(&mut self, _x: i32, _y: i32) {
+        if let Ok(guard) = self.click_callback.lock() {
+            if let Some(ref cb) = *guard {
+                cb(TrayIconEvent::RightClick);
+            }
+        }
+    }
+
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         self.menu_items
             .iter()
-            .map(|item| convert_menu_item(item))
+            .map(|item| convert_menu_item(item, &self.action_callback))
             .collect()
     }
 }
 
-fn convert_menu_item(item: &TrayMenuItem) -> ksni::MenuItem<GpuiTray> {
+fn convert_menu_item(
+    item: &TrayMenuItem,
+    action_callback: &TrayActionCallback,
+) -> ksni::MenuItem<GpuiTray> {
     match item {
-        TrayMenuItem::Action { label, .. } => ksni::MenuItem::Standard(ksni::menu::StandardItem {
-            label: label.to_string(),
-            ..Default::default()
-        }),
-        TrayMenuItem::Separator => ksni::MenuItem::Separator,
-        TrayMenuItem::Submenu { label, items } => {
+        TrayMenuItem::Action { label, id } => {
+            let id_clone = id.clone();
+            let cb = action_callback.clone();
             ksni::MenuItem::Standard(ksni::menu::StandardItem {
                 label: label.to_string(),
-                submenu: items.iter().map(|i| convert_menu_item(i)).collect(),
+                activate: Box::new(move |_tray: &mut GpuiTray| {
+                    if let Ok(guard) = cb.lock() {
+                        if let Some(ref callback) = *guard {
+                            callback(id_clone.clone());
+                        }
+                    }
+                }),
                 ..Default::default()
             })
         }
-        TrayMenuItem::Toggle { label, checked, .. } => {
+        TrayMenuItem::Separator => ksni::MenuItem::Separator,
+        TrayMenuItem::Submenu { label, items } => ksni::MenuItem::SubMenu(ksni::menu::SubMenu {
+            label: label.to_string(),
+            submenu: items
+                .iter()
+                .map(|i| convert_menu_item(i, action_callback))
+                .collect(),
+            ..Default::default()
+        }),
+        TrayMenuItem::Toggle { label, checked, id } => {
+            let id_clone = id.clone();
+            let cb = action_callback.clone();
             ksni::MenuItem::Standard(ksni::menu::StandardItem {
                 label: label.to_string(),
                 icon_name: if *checked {
@@ -76,6 +117,13 @@ fn convert_menu_item(item: &TrayMenuItem) -> ksni::MenuItem<GpuiTray> {
                 } else {
                     String::new()
                 },
+                activate: Box::new(move |_tray: &mut GpuiTray| {
+                    if let Ok(guard) = cb.lock() {
+                        if let Some(ref callback) = *guard {
+                            callback(id_clone.clone());
+                        }
+                    }
+                }),
                 ..Default::default()
             })
         }
@@ -84,11 +132,17 @@ fn convert_menu_item(item: &TrayMenuItem) -> ksni::MenuItem<GpuiTray> {
 
 pub struct LinuxTray {
     handle: Option<ksni::Handle<GpuiTray>>,
+    action_callback: TrayActionCallback,
+    click_callback: TrayClickCallback,
 }
 
 impl LinuxTray {
     pub fn new() -> Self {
-        Self { handle: None }
+        Self {
+            handle: None,
+            action_callback: Arc::new(Mutex::new(None)),
+            click_callback: Arc::new(Mutex::new(None)),
+        }
     }
 
     fn ensure_started(&mut self) {
@@ -99,6 +153,8 @@ impl LinuxTray {
             icon_data: Vec::new(),
             tooltip: String::new(),
             menu_items: Vec::new(),
+            action_callback: self.action_callback.clone(),
+            click_callback: self.click_callback.clone(),
         };
         let service = ksni::TrayService::new(tray);
         self.handle = Some(service.handle());
@@ -132,5 +188,29 @@ impl LinuxTray {
                 tray.menu_items = items.clone();
             });
         }
+    }
+
+    pub fn set_on_menu_action(&self, callback: Box<dyn Fn(SharedString) + Send>) {
+        if let Ok(mut guard) = self.action_callback.lock() {
+            *guard = Some(callback);
+        }
+    }
+
+    pub fn set_on_click(&self, callback: Box<dyn Fn(TrayIconEvent) + Send>) {
+        if let Ok(mut guard) = self.click_callback.lock() {
+            *guard = Some(callback);
+        }
+    }
+
+    pub fn shutdown(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            handle.shutdown();
+        }
+    }
+}
+
+impl Drop for LinuxTray {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }

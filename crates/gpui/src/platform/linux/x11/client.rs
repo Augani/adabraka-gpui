@@ -216,6 +216,8 @@ pub struct X11ClientState {
     pub(crate) clipboard: Clipboard,
     pub(crate) clipboard_item: Option<ClipboardItem>,
     pub(crate) xdnd_state: Xdnd,
+    pub(crate) tray: crate::platform::linux::tray::LinuxTray,
+    pub(crate) global_hotkey: crate::platform::linux::global_hotkey::x11::X11GlobalHotkey,
 }
 
 #[derive(Clone)]
@@ -514,6 +516,8 @@ impl X11Client {
             clipboard,
             clipboard_item: None,
             xdnd_state: Xdnd::default(),
+            tray: crate::platform::linux::tray::LinuxTray::new(),
+            global_hotkey: crate::platform::linux::global_hotkey::x11::X11GlobalHotkey::new(),
         }))))
     }
 
@@ -1746,6 +1750,32 @@ impl LinuxClient for X11Client {
             bundle_id: None,
             pid,
         })
+    }
+
+    fn set_tray_icon(&self, icon: Option<&[u8]>) {
+        self.0.borrow_mut().tray.set_icon(icon);
+    }
+
+    fn set_tray_menu(&self, menu: Vec<crate::TrayMenuItem>) {
+        self.0.borrow_mut().tray.set_menu(menu);
+    }
+
+    fn set_tray_tooltip(&self, tooltip: &str) {
+        self.0.borrow_mut().tray.set_tooltip(tooltip);
+    }
+
+    fn register_global_hotkey(&self, id: u32, keystroke: &Keystroke) -> crate::Result<()> {
+        let mut state = self.0.borrow_mut();
+        let xcb = state.xcb_connection.clone();
+        let root = xcb.setup().roots[state.x_root_index].root;
+        state.global_hotkey.register(id, keystroke, &xcb, root)
+    }
+
+    fn unregister_global_hotkey(&self, id: u32) {
+        let mut state = self.0.borrow_mut();
+        let xcb = state.xcb_connection.clone();
+        let root = xcb.setup().roots[state.x_root_index].root;
+        state.global_hotkey.unregister(id, &xcb, root);
     }
 }
 

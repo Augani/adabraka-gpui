@@ -789,6 +789,7 @@ impl WindowsPlatformInner {
             | WM_GPUI_KEYBOARD_LAYOUT_CHANGED
             | WM_GPUI_GPU_DEVICE_LOST => self.handle_gpui_events(msg, wparam, lparam),
             WM_GPUI_TRAY_ICON => self.handle_tray_icon_event(handle, lparam),
+            WM_COMMAND => self.handle_tray_menu_command(wparam),
             WM_HOTKEY => self.handle_global_hotkey(wparam),
             _ => None,
         };
@@ -882,10 +883,11 @@ impl WindowsPlatformInner {
         };
         if let Some(event) = event {
             if event == TrayIconEvent::RightClick {
-                let state = self.state.borrow();
-                if let Some(ref tray) = state.tray {
-                    tray.show_context_menu(handle);
+                let mut tray = self.state.borrow_mut().tray.take();
+                if let Some(ref mut t) = tray {
+                    t.show_context_menu(handle);
                 }
+                self.state.borrow_mut().tray = tray;
             }
             let mut callback = self.state.borrow_mut().callbacks.tray_icon_event.take();
             if let Some(ref mut cb) = callback {
@@ -893,6 +895,26 @@ impl WindowsPlatformInner {
             }
             self.state.borrow_mut().callbacks.tray_icon_event = callback;
         }
+        Some(0)
+    }
+
+    fn handle_tray_menu_command(&self, wparam: WPARAM) -> Option<isize> {
+        let cmd_id = (wparam.0 & 0xFFFF) as u32;
+        let item_id = {
+            let state = self.state.borrow();
+            state
+                .tray
+                .as_ref()
+                .and_then(|tray| tray.command_id_map.get(&cmd_id).cloned())
+        };
+        let Some(item_id) = item_id else {
+            return None;
+        };
+        let mut callback = self.state.borrow_mut().callbacks.tray_menu_action.take();
+        if let Some(ref mut cb) = callback {
+            cb(item_id);
+        }
+        self.state.borrow_mut().callbacks.tray_menu_action = callback;
         Some(0)
     }
 
