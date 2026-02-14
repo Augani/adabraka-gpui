@@ -1,3 +1,5 @@
+mod active_window;
+mod auto_launch;
 mod clipboard;
 mod destination_list;
 mod direct_write;
@@ -7,15 +9,18 @@ mod directx_renderer;
 mod dispatcher;
 mod display;
 mod events;
+mod global_hotkey;
 mod keyboard;
 mod platform;
 mod system_settings;
+mod tray;
 mod util;
 mod vsync;
 mod window;
 mod wrapper;
 
 pub(crate) use clipboard::*;
+pub(crate) use tray::*;
 pub(crate) use destination_list::*;
 pub(crate) use direct_write::*;
 pub(crate) use directx_atlas::*;

@@ -4,7 +4,10 @@ use std::{
     mem::ManuallyDrop,
     path::{Path, PathBuf},
     rc::{Rc, Weak},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use ::util::{ResultExt, paths::SanitizedPath};
@@ -45,6 +48,7 @@ pub(crate) struct WindowsPlatform {
 struct WindowsPlatformInner {
     state: RefCell<WindowsPlatformState>,
     raw_window_handles: std::sync::Weak<RwLock<SmallVec<[SafeHwnd; 4]>>>,
+    keep_alive_without_windows: AtomicBool,
     // The below members will never change throughout the entire lifecycle of the app.
     validation_number: usize,
     main_receiver: flume::Receiver<Runnable>,
@@ -54,6 +58,7 @@ pub(crate) struct WindowsPlatformState {
     callbacks: PlatformCallbacks,
     menus: Vec<OwnedMenu>,
     jump_list: JumpList,
+    pub(crate) tray: Option<WindowsTray>,
     // NOTE: standard cursor handles don't need to close.
     pub(crate) current_cursor: Option<HCURSOR>,
     directx_devices: ManuallyDrop<DirectXDevices>,
@@ -68,6 +73,8 @@ struct PlatformCallbacks {
     will_open_app_menu: Option<Box<dyn FnMut()>>,
     validate_app_menu_command: Option<Box<dyn FnMut(&dyn Action) -> bool>>,
     keyboard_layout_change: Option<Box<dyn FnMut()>>,
+    tray_icon_event: Option<Box<dyn FnMut(TrayIconEvent)>>,
+    global_hotkey: Option<Box<dyn FnMut(u32)>>,
 }
 
 impl WindowsPlatformState {
@@ -80,6 +87,7 @@ impl WindowsPlatformState {
         Self {
             callbacks,
             jump_list,
+            tray: None,
             current_cursor,
             directx_devices,
             menus: Vec::new(),
@@ -672,6 +680,79 @@ impl Platform for WindowsPlatform {
     ) -> Vec<SmallVec<[PathBuf; 2]>> {
         self.update_jump_list(menus, entries)
     }
+
+    fn set_keep_alive_without_windows(&self, keep_alive: bool) {
+        self.inner
+            .keep_alive_without_windows
+            .store(keep_alive, Ordering::Release);
+    }
+
+    fn set_tray_icon(&self, icon: Option<&[u8]>) {
+        let mut state = self.inner.state.borrow_mut();
+        if let Some(ref mut tray) = state.tray {
+            tray.set_icon(icon, self.handle);
+        } else if icon.is_some() {
+            let mut tray = WindowsTray::new(self.handle);
+            tray.set_icon(icon, self.handle);
+            state.tray = Some(tray);
+        }
+    }
+
+    fn set_tray_menu(&self, menu: Vec<TrayMenuItem>) {
+        let mut state = self.inner.state.borrow_mut();
+        if let Some(ref mut tray) = state.tray {
+            tray.menu_items = menu;
+        }
+    }
+
+    fn set_tray_tooltip(&self, tooltip: &str) {
+        let mut state = self.inner.state.borrow_mut();
+        if let Some(ref mut tray) = state.tray {
+            tray.set_tooltip(tooltip, self.handle);
+        }
+    }
+
+    fn on_tray_icon_event(&self, callback: Box<dyn FnMut(TrayIconEvent)>) {
+        let mut state = self.inner.state.borrow_mut();
+        state.callbacks.tray_icon_event = Some(callback);
+    }
+
+    fn register_global_hotkey(&self, id: u32, keystroke: &Keystroke) -> Result<()> {
+        super::global_hotkey::register(self.handle, id, keystroke)
+    }
+
+    fn unregister_global_hotkey(&self, id: u32) {
+        super::global_hotkey::unregister(self.handle, id);
+    }
+
+    fn on_global_hotkey(&self, callback: Box<dyn FnMut(u32)>) {
+        self.inner.state.borrow_mut().callbacks.global_hotkey = Some(callback);
+    }
+
+    fn focused_window_info(&self) -> Option<FocusedWindowInfo> {
+        super::active_window::get_focused_window_info()
+    }
+
+    fn set_auto_launch(&self, app_id: &str, enabled: bool) -> Result<()> {
+        super::auto_launch::set_auto_launch(app_id, enabled)
+    }
+
+    fn is_auto_launch_enabled(&self, app_id: &str) -> bool {
+        super::auto_launch::is_auto_launch_enabled(app_id)
+    }
+
+    fn show_notification(&self, title: &str, body: &str) -> Result<()> {
+        let mut state = self.inner.state.borrow_mut();
+        if state.tray.is_none() {
+            let tray = WindowsTray::new(self.handle);
+            state.tray = Some(tray);
+        }
+        if let Some(ref tray) = state.tray {
+            tray.show_balloon(title, body, self.handle)
+        } else {
+            Err(anyhow!("Failed to create tray for notification"))
+        }
+    }
 }
 
 impl WindowsPlatformInner {
@@ -682,6 +763,7 @@ impl WindowsPlatformInner {
         Ok(Rc::new(Self {
             state,
             raw_window_handles: context.raw_window_handles.clone(),
+            keep_alive_without_windows: AtomicBool::new(false),
             validation_number: context.validation_number,
             main_receiver: context.main_receiver.take().unwrap(),
         }))
@@ -700,6 +782,8 @@ impl WindowsPlatformInner {
             | WM_GPUI_DOCK_MENU_ACTION
             | WM_GPUI_KEYBOARD_LAYOUT_CHANGED
             | WM_GPUI_GPU_DEVICE_LOST => self.handle_gpui_events(msg, wparam, lparam),
+            WM_GPUI_TRAY_ICON => self.handle_tray_icon_event(handle, lparam),
+            WM_HOTKEY => self.handle_global_hotkey(wparam),
             _ => None,
         };
         if let Some(result) = handled {
@@ -741,7 +825,7 @@ impl WindowsPlatformInner {
             .unwrap();
         lock.remove(index);
 
-        lock.is_empty()
+        lock.is_empty() && !self.keep_alive_without_windows.load(Ordering::Acquire)
     }
 
     #[inline]
@@ -780,6 +864,39 @@ impl WindowsPlatformInner {
             .take()?;
         callback();
         self.state.borrow_mut().callbacks.keyboard_layout_change = Some(callback);
+        Some(0)
+    }
+
+    fn handle_tray_icon_event(&self, handle: HWND, lparam: LPARAM) -> Option<isize> {
+        let event = match (lparam.0 & 0xFFFF) as u32 {
+            WM_LBUTTONUP => Some(TrayIconEvent::LeftClick),
+            WM_RBUTTONUP => Some(TrayIconEvent::RightClick),
+            WM_LBUTTONDBLCLK => Some(TrayIconEvent::DoubleClick),
+            _ => None,
+        };
+        if let Some(event) = event {
+            if event == TrayIconEvent::RightClick {
+                let state = self.state.borrow();
+                if let Some(ref tray) = state.tray {
+                    tray.show_context_menu(handle);
+                }
+            }
+            let mut callback = self.state.borrow_mut().callbacks.tray_icon_event.take();
+            if let Some(ref mut cb) = callback {
+                cb(event);
+            }
+            self.state.borrow_mut().callbacks.tray_icon_event = callback;
+        }
+        Some(0)
+    }
+
+    fn handle_global_hotkey(&self, wparam: WPARAM) -> Option<isize> {
+        let hotkey_id = wparam.0 as u32;
+        let mut callback = self.state.borrow_mut().callbacks.global_hotkey.take();
+        if let Some(ref mut cb) = callback {
+            cb(hotkey_id);
+        }
+        self.state.borrow_mut().callbacks.global_hotkey = callback;
         Some(0)
     }
 
