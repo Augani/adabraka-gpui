@@ -4,13 +4,14 @@ use super::{
     events::key_to_native,
     renderer,
 };
+use super::tray::MacTray;
 use crate::{
     Action, AnyWindowHandle, BackgroundExecutor, ClipboardEntry, ClipboardItem, ClipboardString,
     CursorStyle, ForegroundExecutor, Image, ImageFormat, KeyContext, Keymap, MacDispatcher,
     MacDisplay, MacWindow, Menu, MenuItem, OsMenu, OwnedMenu, PathPromptOptions, Platform,
     PlatformDisplay, PlatformKeyboardLayout, PlatformKeyboardMapper, PlatformTextSystem,
-    PlatformWindow, Result, SemanticVersion, SystemMenuType, Task, WindowAppearance, WindowParams,
-    hash,
+    PlatformWindow, Result, SemanticVersion, SystemMenuType, Task, TrayIconEvent, TrayMenuItem,
+    WindowAppearance, WindowParams, hash,
 };
 use anyhow::{Context as _, anyhow};
 use block::ConcreteBlock;
@@ -149,6 +150,12 @@ unsafe fn build_classes() {
                 on_keyboard_layout_change as extern "C" fn(&mut Object, Sel, id),
             );
 
+            decl.add_method(
+                sel!(applicationShouldTerminateAfterLastWindowClosed:),
+                should_terminate_after_last_window_closed
+                    as extern "C" fn(&mut Object, Sel, id) -> BOOL,
+            );
+
             decl.register()
         }
     }
@@ -177,6 +184,12 @@ pub(crate) struct MacPlatformState {
     dock_menu: Option<id>,
     menus: Option<Vec<OwnedMenu>>,
     keyboard_mapper: Rc<MacKeyboardMapper>,
+    keep_alive_without_windows: bool,
+    tray: Option<MacTray>,
+    tray_icon_callback: Option<Box<dyn FnMut(TrayIconEvent)>>,
+    global_hotkey_callback: Option<Box<dyn FnMut(u32)>>,
+    global_hotkey_monitors: Vec<id>,
+    global_hotkey_registrations: std::collections::HashMap<u32, crate::Keystroke>,
 }
 
 impl Default for MacPlatform {
@@ -219,6 +232,12 @@ impl MacPlatform {
             on_keyboard_layout_change: None,
             menus: None,
             keyboard_mapper,
+            keep_alive_without_windows: false,
+            tray: None,
+            tray_icon_callback: None,
+            global_hotkey_callback: None,
+            global_hotkey_monitors: Vec::new(),
+            global_hotkey_registrations: std::collections::HashMap::new(),
         }))
     }
 
@@ -1222,6 +1241,175 @@ impl Platform for MacPlatform {
         })
     }
 
+    fn set_keep_alive_without_windows(&self, keep_alive: bool) {
+        self.0.lock().keep_alive_without_windows = keep_alive;
+    }
+
+    fn set_tray_icon(&self, icon: Option<&[u8]>) {
+        let mut state = self.0.lock();
+        if state.tray.is_none() {
+            state.tray = Some(MacTray::new());
+        }
+        if let Some(tray) = &state.tray {
+            tray.set_icon(icon);
+        }
+    }
+
+    fn set_tray_menu(&self, menu: Vec<TrayMenuItem>) {
+        let mut state = self.0.lock();
+        if state.tray.is_none() {
+            state.tray = Some(MacTray::new());
+        }
+        if let Some(tray) = &state.tray {
+            tray.set_menu(menu);
+        }
+    }
+
+    fn set_tray_tooltip(&self, tooltip: &str) {
+        let mut state = self.0.lock();
+        if state.tray.is_none() {
+            state.tray = Some(MacTray::new());
+        }
+        if let Some(tray) = &state.tray {
+            tray.set_tooltip(tooltip);
+        }
+    }
+
+    fn on_tray_icon_event(&self, callback: Box<dyn FnMut(TrayIconEvent)>) {
+        self.0.lock().tray_icon_callback = Some(callback);
+    }
+
+    fn register_global_hotkey(&self, id: u32, keystroke: &crate::Keystroke) -> Result<()> {
+        let mut state = self.0.lock();
+        state
+            .global_hotkey_registrations
+            .insert(id, keystroke.clone());
+
+        if state.global_hotkey_monitors.is_empty() {
+            let platform_ptr = &self.0 as *const Mutex<MacPlatformState> as *const c_void;
+
+            unsafe {
+                let mask: u64 = 1 << 10;
+
+                let global_block =
+                    ConcreteBlock::new(move |event: id| {
+                        let platform_state =
+                            &*(platform_ptr as *const Mutex<MacPlatformState>);
+                        let mut lock = platform_state.lock();
+                        if let Some(hotkey_id) =
+                            super::global_hotkey::find_matching_hotkey(
+                                &lock.global_hotkey_registrations,
+                                event,
+                            )
+                        {
+                            if let Some(mut callback) = lock.global_hotkey_callback.take() {
+                                drop(lock);
+                                callback(hotkey_id);
+                                platform_state.lock().global_hotkey_callback =
+                                    Some(callback);
+                            }
+                        }
+                    });
+                let global_block = global_block.copy();
+                let global_monitor: id = msg_send![
+                    class!(NSEvent),
+                    addGlobalMonitorForEventsMatchingMask: mask
+                    handler: &*global_block
+                ];
+                std::mem::forget(global_block);
+
+                let local_block = ConcreteBlock::new(move |event: id| -> id {
+                    let platform_state =
+                        &*(platform_ptr as *const Mutex<MacPlatformState>);
+                    let mut lock = platform_state.lock();
+                    if let Some(hotkey_id) =
+                        super::global_hotkey::find_matching_hotkey(
+                            &lock.global_hotkey_registrations,
+                            event,
+                        )
+                    {
+                        if let Some(mut callback) = lock.global_hotkey_callback.take() {
+                            drop(lock);
+                            callback(hotkey_id);
+                            platform_state.lock().global_hotkey_callback =
+                                Some(callback);
+                        }
+                    }
+                    event
+                });
+                let local_block = local_block.copy();
+                let local_monitor: id = msg_send![
+                    class!(NSEvent),
+                    addLocalMonitorForEventsMatchingMask: mask
+                    handler: &*local_block
+                ];
+                std::mem::forget(local_block);
+
+                state.global_hotkey_monitors.push(global_monitor);
+                state.global_hotkey_monitors.push(local_monitor);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn unregister_global_hotkey(&self, id: u32) {
+        let mut state = self.0.lock();
+        state.global_hotkey_registrations.remove(&id);
+    }
+
+    fn on_global_hotkey(&self, callback: Box<dyn FnMut(u32)>) {
+        self.0.lock().global_hotkey_callback = Some(callback);
+    }
+
+    fn focused_window_info(&self) -> Option<crate::FocusedWindowInfo> {
+        super::active_window::get_focused_window_info()
+    }
+
+    fn accessibility_status(&self) -> crate::PermissionStatus {
+        super::permissions::accessibility_status()
+    }
+
+    fn request_accessibility_permission(&self) {
+        super::permissions::request_accessibility_permission();
+    }
+
+    fn set_auto_launch(&self, app_id: &str, enabled: bool) -> Result<()> {
+        super::auto_launch::set_auto_launch(app_id, enabled)
+    }
+
+    fn is_auto_launch_enabled(&self, app_id: &str) -> bool {
+        super::auto_launch::is_auto_launch_enabled(app_id)
+    }
+
+    fn show_notification(&self, title: &str, body: &str) -> Result<()> {
+        unsafe {
+            let center: id = msg_send![
+                class!(UNUserNotificationCenter),
+                currentNotificationCenter
+            ];
+            if center == nil {
+                return Err(anyhow!("UNUserNotificationCenter not available"));
+            }
+            let content: id = msg_send![class!(UNMutableNotificationContent), new];
+            let ns_title = cocoa::foundation::NSString::alloc(nil).init_str(title);
+            let _: () = msg_send![content, setTitle: ns_title];
+            let ns_body = cocoa::foundation::NSString::alloc(nil).init_str(body);
+            let _: () = msg_send![content, setBody: ns_body];
+
+            let uuid_str = uuid::Uuid::new_v4().to_string();
+            let ns_id = cocoa::foundation::NSString::alloc(nil).init_str(&uuid_str);
+            let request: id = msg_send![
+                class!(UNNotificationRequest),
+                requestWithIdentifier: ns_id
+                content: content
+                trigger: nil
+            ];
+            let _: () = msg_send![center, addNotificationRequest: request withCompletionHandler: nil];
+        }
+        Ok(())
+    }
+
     fn delete_credentials(&self, url: &str) -> Task<Result<()>> {
         let url = url.to_string();
 
@@ -1442,6 +1630,16 @@ extern "C" fn on_keyboard_layout_change(this: &mut Object, _: Sel, _: id) {
             .on_keyboard_layout_change
             .get_or_insert(callback);
     }
+}
+
+extern "C" fn should_terminate_after_last_window_closed(
+    this: &mut Object,
+    _: Sel,
+    _: id,
+) -> BOOL {
+    let platform = unsafe { get_mac_platform(this) };
+    let lock = platform.0.lock();
+    if lock.keep_alive_without_windows { NO } else { YES }
 }
 
 extern "C" fn open_urls(this: &mut Object, _: Sel, _: id, urls: id) {

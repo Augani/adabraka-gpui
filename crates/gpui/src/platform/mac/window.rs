@@ -582,7 +582,7 @@ impl MacWindow {
             display_id,
             window_min_size,
             tabbing_identifier,
-            mouse_passthrough: _,
+            mouse_passthrough,
         }: WindowParams,
         executor: ForegroundExecutor,
         renderer_context: renderer::Context,
@@ -868,6 +868,10 @@ impl MacWindow {
                         }
                     }
                 }
+            }
+
+            if mouse_passthrough {
+                let _: () = msg_send![native_window, setIgnoresMouseEvents: YES];
             }
 
             if focus && show {
@@ -1520,6 +1524,29 @@ impl PlatformWindow for MacWindow {
                 }
             })
             .detach()
+    }
+
+    fn show(&self) {
+        unsafe {
+            let _: () = msg_send![self.0.lock().native_window, makeKeyAndOrderFront: nil];
+        }
+    }
+
+    fn hide(&self) {
+        unsafe {
+            let _: () = msg_send![self.0.lock().native_window, orderOut: nil];
+        }
+    }
+
+    fn is_visible(&self) -> bool {
+        unsafe { msg_send![self.0.lock().native_window, isVisible] }
+    }
+
+    fn set_mouse_passthrough(&self, passthrough: bool) {
+        unsafe {
+            let _: () =
+                msg_send![self.0.lock().native_window, setIgnoresMouseEvents: passthrough as BOOL];
+        }
     }
 
     fn titlebar_double_click(&self) {

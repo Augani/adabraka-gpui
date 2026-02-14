@@ -29,7 +29,12 @@ mod open_type;
 #[cfg(feature = "font-kit")]
 mod text_system;
 
+mod active_window;
+mod auto_launch;
+mod global_hotkey;
+mod permissions;
 mod platform;
+mod tray;
 mod window;
 mod window_appearance;
 
