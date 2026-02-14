@@ -281,6 +281,7 @@ pub(crate) trait Platform: 'static {
     fn set_tray_menu(&self, _menu: Vec<TrayMenuItem>) {}
     fn set_tray_tooltip(&self, _tooltip: &str) {}
     fn on_tray_icon_event(&self, _callback: Box<dyn FnMut(TrayIconEvent)>) {}
+    fn on_tray_menu_action(&self, _callback: Box<dyn FnMut(SharedString)>) {}
 
     fn register_global_hotkey(&self, _id: u32, _keystroke: &Keystroke) -> Result<()> {
         Err(anyhow::anyhow!("Global hotkeys not supported on this platform"))

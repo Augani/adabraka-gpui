@@ -103,9 +103,6 @@ fn main() {
 
         let _ = cx.show_notification("Daemon App", "Application started in background");
 
-        open_overlay(cx);
-        open_settings(cx);
-
         cx.activate(true);
     });
 }
@@ -139,6 +136,21 @@ fn setup_tray(cx: &mut App) {
         TrayIconEvent::DoubleClick => {
             eprintln!("Tray icon double-clicked");
         }
+    });
+
+    cx.on_tray_menu_action(|id, cx| match id.as_ref() {
+        "show_overlay" => {
+            open_overlay(cx);
+            cx.activate(true);
+        }
+        "settings" => {
+            open_settings(cx);
+            cx.activate(true);
+        }
+        "quit" => {
+            cx.quit();
+        }
+        _ => {}
     });
 }
 

@@ -74,6 +74,7 @@ struct PlatformCallbacks {
     validate_app_menu_command: Option<Box<dyn FnMut(&dyn Action) -> bool>>,
     keyboard_layout_change: Option<Box<dyn FnMut()>>,
     tray_icon_event: Option<Box<dyn FnMut(TrayIconEvent)>>,
+    tray_menu_action: Option<Box<dyn FnMut(SharedString)>>,
     global_hotkey: Option<Box<dyn FnMut(u32)>>,
 }
 
@@ -715,6 +716,11 @@ impl Platform for WindowsPlatform {
     fn on_tray_icon_event(&self, callback: Box<dyn FnMut(TrayIconEvent)>) {
         let mut state = self.inner.state.borrow_mut();
         state.callbacks.tray_icon_event = Some(callback);
+    }
+
+    fn on_tray_menu_action(&self, callback: Box<dyn FnMut(SharedString)>) {
+        let mut state = self.inner.state.borrow_mut();
+        state.callbacks.tray_menu_action = Some(callback);
     }
 
     fn register_global_hotkey(&self, id: u32, keystroke: &Keystroke) -> Result<()> {

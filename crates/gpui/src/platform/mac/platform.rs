@@ -10,14 +10,16 @@ use crate::{
     CursorStyle, ForegroundExecutor, Image, ImageFormat, KeyContext, Keymap, MacDispatcher,
     MacDisplay, MacWindow, Menu, MenuItem, OsMenu, OwnedMenu, PathPromptOptions, Platform,
     PlatformDisplay, PlatformKeyboardLayout, PlatformKeyboardMapper, PlatformTextSystem,
-    PlatformWindow, Result, SemanticVersion, SystemMenuType, Task, TrayIconEvent, TrayMenuItem,
-    WindowAppearance, WindowParams, hash,
+    PlatformWindow, Result, SemanticVersion, SharedString, SystemMenuType, Task, TrayIconEvent,
+    TrayMenuItem, WindowAppearance, WindowParams, hash,
 };
 use anyhow::{Context as _, anyhow};
 use block::ConcreteBlock;
 use cocoa::{
     appkit::{
-        NSApplication, NSApplicationActivationPolicy::NSApplicationActivationPolicyRegular,
+        NSApplication,
+        NSApplicationActivationPolicy::NSApplicationActivationPolicyAccessory,
+        NSApplicationActivationPolicy::NSApplicationActivationPolicyRegular,
         NSEventModifierFlags, NSMenu, NSMenuItem, NSModalResponse, NSOpenPanel, NSPasteboard,
         NSPasteboardTypePNG, NSPasteboardTypeRTF, NSPasteboardTypeRTFD, NSPasteboardTypeString,
         NSPasteboardTypeTIFF, NSSavePanel, NSWindow,
@@ -103,6 +105,10 @@ unsafe fn build_classes() {
                 sel!(handleGPUIMenuItem:),
                 handle_menu_item as extern "C" fn(&mut Object, Sel, id),
             );
+            decl.add_method(
+                sel!(handleTrayMenuItem:),
+                handle_tray_menu_item as extern "C" fn(&mut Object, Sel, id),
+            );
             // Add menu item handlers so that OS save panels have the correct key commands
             decl.add_method(
                 sel!(cut:),
@@ -187,6 +193,7 @@ pub(crate) struct MacPlatformState {
     keep_alive_without_windows: bool,
     tray: Option<MacTray>,
     tray_icon_callback: Option<Box<dyn FnMut(TrayIconEvent)>>,
+    tray_menu_callback: Option<Box<dyn FnMut(SharedString)>>,
     global_hotkey_callback: Option<Box<dyn FnMut(u32)>>,
     global_hotkey_monitors: Vec<id>,
     global_hotkey_registrations: std::collections::HashMap<u32, crate::Keystroke>,
@@ -235,6 +242,7 @@ impl MacPlatform {
             keep_alive_without_windows: false,
             tray: None,
             tray_icon_callback: None,
+            tray_menu_callback: None,
             global_hotkey_callback: None,
             global_hotkey_monitors: Vec::new(),
             global_hotkey_registrations: std::collections::HashMap::new(),
@@ -1279,6 +1287,10 @@ impl Platform for MacPlatform {
         self.0.lock().tray_icon_callback = Some(callback);
     }
 
+    fn on_tray_menu_action(&self, callback: Box<dyn FnMut(SharedString)>) {
+        self.0.lock().tray_menu_callback = Some(callback);
+    }
+
     fn register_global_hotkey(&self, id: u32, keystroke: &crate::Keystroke) -> Result<()> {
         let mut state = self.0.lock();
         state
@@ -1583,7 +1595,6 @@ extern "C" fn will_finish_launching(_this: &mut Object, _: Sel, _: id) {
 extern "C" fn did_finish_launching(this: &mut Object, _: Sel, _: id) {
     unsafe {
         let app: id = msg_send![APP_CLASS, sharedApplication];
-        app.setActivationPolicy_(NSApplicationActivationPolicyRegular);
 
         let notification_center: *mut Object =
             msg_send![class!(NSNotificationCenter), defaultCenter];
@@ -1598,6 +1609,13 @@ extern "C" fn did_finish_launching(this: &mut Object, _: Sel, _: id) {
         let callback = platform.0.lock().finish_launching.take();
         if let Some(callback) = callback {
             callback();
+        }
+
+        let keep_alive = platform.0.lock().keep_alive_without_windows;
+        if keep_alive {
+            app.setActivationPolicy_(NSApplicationActivationPolicyAccessory);
+        } else {
+            app.setActivationPolicy_(NSApplicationActivationPolicyRegular);
         }
     }
 }
@@ -1688,6 +1706,51 @@ extern "C" fn handle_menu_item(this: &mut Object, _: Sel, item: id) {
             }
             platform.0.lock().menu_command.get_or_insert(callback);
         }
+    }
+}
+
+extern "C" fn handle_tray_menu_item(this: &mut Object, _: Sel, item: id) {
+    unsafe {
+        let platform = get_mac_platform(this);
+        let represented: id = msg_send![item, representedObject];
+        if represented == nil {
+            return;
+        }
+        let len: usize = msg_send![represented, lengthOfBytesUsingEncoding: NSUTF8StringEncoding];
+        let bytes: *const u8 = msg_send![represented, UTF8String];
+        let id_str = std::str::from_utf8(slice::from_raw_parts(bytes, len)).unwrap_or("");
+        let shared_id: SharedString = id_str.to_string().into();
+
+        let platform_ptr = &*platform as *const MacPlatform;
+
+        use super::dispatcher::{dispatch_get_main_queue, dispatch_sys::dispatch_async_f};
+
+        struct TrayActionCtx {
+            platform: *const MacPlatform,
+            id: SharedString,
+        }
+
+        let ctx = Box::into_raw(Box::new(TrayActionCtx {
+            platform: platform_ptr,
+            id: shared_id,
+        }));
+
+        unsafe extern "C" fn invoke(ctx_ptr: *mut c_void) {
+            let ctx = unsafe { Box::from_raw(ctx_ptr as *mut TrayActionCtx) };
+            let platform = unsafe { &*ctx.platform };
+            let mut lock = platform.0.lock();
+            if let Some(mut callback) = lock.tray_menu_callback.take() {
+                drop(lock);
+                callback(ctx.id);
+                platform.0.lock().tray_menu_callback = Some(callback);
+            }
+        }
+
+        dispatch_async_f(
+            dispatch_get_main_queue(),
+            ctx as *mut c_void,
+            Some(invoke),
+        );
     }
 }
 

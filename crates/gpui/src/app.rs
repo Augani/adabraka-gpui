@@ -1019,6 +1019,20 @@ impl App {
         self.platform.on_tray_icon_event(Box::new(callback));
     }
 
+    /// Register a callback for when a tray menu item is clicked.
+    pub fn on_tray_menu_action(
+        &self,
+        mut callback: impl FnMut(SharedString, &mut App) + 'static,
+    ) {
+        let this = self.this.clone();
+        self.platform
+            .on_tray_menu_action(Box::new(move |id| {
+                if let Some(app) = this.upgrade() {
+                    callback(id, &mut app.borrow_mut());
+                }
+            }));
+    }
+
     /// Register a global hotkey with the given ID and keystroke.
     pub fn register_global_hotkey(&self, id: u32, keystroke: &Keystroke) -> Result<()> {
         self.platform.register_global_hotkey(id, keystroke)

@@ -27,7 +27,7 @@ use crate::{
     FocusedWindowInfo, ForegroundExecutor, Keymap, Keystroke, LinuxDispatcher, Menu, MenuItem,
     OwnedMenu, PathPromptOptions, Pixels, Platform, PlatformDisplay, PlatformKeyboardLayout,
     PlatformKeyboardMapper, PlatformTextSystem, PlatformWindow, Point, Result, Task,
-    TrayIconEvent, TrayMenuItem, WindowAppearance, WindowParams, px,
+    SharedString, TrayIconEvent, TrayMenuItem, WindowAppearance, WindowParams, px,
 };
 
 #[cfg(any(feature = "wayland", feature = "x11"))]
@@ -105,6 +105,7 @@ pub(crate) struct PlatformHandlers {
     pub(crate) validate_app_menu_command: Option<Box<dyn FnMut(&dyn Action) -> bool>>,
     pub(crate) keyboard_layout_change: Option<Box<dyn FnMut()>>,
     pub(crate) tray_icon_event: Option<Box<dyn FnMut(TrayIconEvent)>>,
+    pub(crate) tray_menu_action: Option<Box<dyn FnMut(SharedString)>>,
     pub(crate) global_hotkey: Option<Box<dyn FnMut(u32)>>,
 }
 
@@ -626,6 +627,10 @@ impl<P: LinuxClient + 'static> Platform for P {
 
     fn on_tray_icon_event(&self, callback: Box<dyn FnMut(TrayIconEvent)>) {
         self.with_common(|common| common.callbacks.tray_icon_event = Some(callback));
+    }
+
+    fn on_tray_menu_action(&self, callback: Box<dyn FnMut(SharedString)>) {
+        self.with_common(|common| common.callbacks.tray_menu_action = Some(callback));
     }
 
     fn register_global_hotkey(&self, id: u32, keystroke: &Keystroke) -> Result<()> {
