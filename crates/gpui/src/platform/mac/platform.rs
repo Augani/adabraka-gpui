@@ -1384,6 +1384,14 @@ impl Platform for MacPlatform {
 
     fn show_notification(&self, title: &str, body: &str) -> Result<()> {
         unsafe {
+            let bundle: id = msg_send![class!(NSBundle), mainBundle];
+            let bundle_id: id = msg_send![bundle, bundleIdentifier];
+            if bundle_id == nil {
+                return Err(anyhow!(
+                    "Notifications require an app bundle (bundleIdentifier is nil)"
+                ));
+            }
+
             let center: id = msg_send![
                 class!(UNUserNotificationCenter),
                 currentNotificationCenter
