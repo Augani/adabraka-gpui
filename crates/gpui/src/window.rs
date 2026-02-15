@@ -4178,6 +4178,18 @@ impl Window {
         }
     }
 
+    /// Restore a previously captured window state.
+    ///
+    /// This restores the fullscreen state. Window bounds are set at creation
+    /// time via `WindowOptions`/`WindowParams`, so this primarily handles
+    /// toggling fullscreen to match the saved state.
+    pub fn restore_window_state(&self, state: &WindowState) {
+        let is_fullscreen = self.platform_window.is_fullscreen();
+        if state.fullscreen != is_fullscreen {
+            self.platform_window.toggle_fullscreen();
+        }
+    }
+
     /// Updates the IME panel position suggestions for languages like japanese, chinese.
     pub fn invalidate_character_coordinates(&self) {
         self.on_next_frame(|window, cx| {

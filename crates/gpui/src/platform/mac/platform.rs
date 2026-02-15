@@ -165,6 +165,16 @@ unsafe fn build_classes() {
                     as extern "C" fn(&mut Object, Sel, id) -> BOOL,
             );
 
+            decl.add_method(
+                sel!(handleSystemPowerEvent:),
+                handle_system_power_event as extern "C" fn(&mut Object, Sel, id),
+            );
+
+            decl.add_method(
+                sel!(handleContextMenuItem:),
+                handle_context_menu_item as extern "C" fn(&mut Object, Sel, id),
+            );
+
             decl.register()
         }
     }
@@ -203,6 +213,8 @@ pub(crate) struct MacPlatformState {
     system_power_callback: Option<Box<dyn FnMut(crate::SystemPowerEvent)>>,
     network_change_callback: Option<Box<dyn FnMut(crate::NetworkStatus)>>,
     media_key_callback: Option<Box<dyn FnMut(crate::MediaKeyEvent)>>,
+    media_key_monitor: Option<id>,
+    network_monitor: Option<*const c_void>,
     attention_request_id: isize,
     context_menu_callback: Option<Box<dyn FnMut(crate::SharedString)>>,
 }
@@ -257,6 +269,8 @@ impl MacPlatform {
             system_power_callback: None,
             network_change_callback: None,
             media_key_callback: None,
+            media_key_monitor: None,
+            network_monitor: None,
             attention_request_id: 0,
             context_menu_callback: None,
         }))
@@ -1521,11 +1535,120 @@ impl Platform for MacPlatform {
     }
 
     fn on_network_status_change(&self, callback: Box<dyn FnMut(crate::NetworkStatus)>) {
-        self.0.lock().network_change_callback = Some(callback);
+        let mut state = self.0.lock();
+
+        if let Some(old_monitor) = state.network_monitor.take() {
+            unsafe { super::network::cancel_path_monitor(old_monitor) };
+        }
+
+        state.network_change_callback = Some(callback);
+
+        let platform_ptr = &self.0 as *const Mutex<MacPlatformState> as *const c_void;
+
+        unsafe {
+            let monitor = super::network::create_path_monitor();
+            if monitor.is_null() {
+                return;
+            }
+
+            let block = ConcreteBlock::new(move |path: *const c_void| {
+                let status = super::network::path_status_to_network_status(path);
+
+                struct NetworkChangeCtx {
+                    platform: *const c_void,
+                    status: crate::NetworkStatus,
+                }
+
+                let ctx = Box::into_raw(Box::new(NetworkChangeCtx {
+                    platform: platform_ptr,
+                    status,
+                }));
+
+                use super::dispatcher::{dispatch_get_main_queue, dispatch_sys::dispatch_async_f};
+
+                unsafe extern "C" fn invoke(ctx_ptr: *mut c_void) {
+                    let ctx = unsafe { Box::from_raw(ctx_ptr as *mut NetworkChangeCtx) };
+                    let platform_state =
+                        unsafe { &*(ctx.platform as *const Mutex<MacPlatformState>) };
+                    let mut lock = platform_state.lock();
+                    if let Some(mut callback) = lock.network_change_callback.take() {
+                        drop(lock);
+                        callback(ctx.status);
+                        platform_state.lock().network_change_callback = Some(callback);
+                    }
+                }
+
+                dispatch_async_f(dispatch_get_main_queue(), ctx as *mut c_void, Some(invoke));
+            });
+            let block = block.copy();
+
+            let queue = super::dispatcher::dispatch_get_main_queue();
+            super::network::start_path_monitor(
+                monitor,
+                &*block as *const _ as *const c_void,
+                queue as *const c_void,
+            );
+            std::mem::forget(block);
+
+            state.network_monitor = Some(monitor);
+        }
     }
 
     fn on_media_key_event(&self, callback: Box<dyn FnMut(crate::MediaKeyEvent)>) {
-        self.0.lock().media_key_callback = Some(callback);
+        let mut state = self.0.lock();
+        state.media_key_callback = Some(callback);
+
+        if state.media_key_monitor.is_some() {
+            return;
+        }
+
+        let platform_ptr = &self.0 as *const Mutex<MacPlatformState> as *const c_void;
+
+        unsafe {
+            let mask: u64 = 1 << 14; // NSSystemDefinedMask
+
+            let block = ConcreteBlock::new(move |event: id| {
+                let subtype: i16 = msg_send![event, subtype];
+                if subtype != 8 {
+                    return;
+                }
+
+                let data1: isize = msg_send![event, data1];
+                let key_code = (data1 >> 16) & 0xFF;
+                let flags = (data1 >> 8) & 0xFF;
+                let is_down = (flags & 0x1) == 0;
+
+                if !is_down {
+                    return;
+                }
+
+                let media_event = match key_code {
+                    16 => crate::MediaKeyEvent::PlayPause,
+                    17 => crate::MediaKeyEvent::NextTrack,
+                    18 => crate::MediaKeyEvent::PreviousTrack,
+                    19 => crate::MediaKeyEvent::Stop,
+                    20 => crate::MediaKeyEvent::Play,
+                    _ => return,
+                };
+
+                let platform_state = &*(platform_ptr as *const Mutex<MacPlatformState>);
+                let mut lock = platform_state.lock();
+                if let Some(mut callback) = lock.media_key_callback.take() {
+                    drop(lock);
+                    callback(media_event);
+                    platform_state.lock().media_key_callback = Some(callback);
+                }
+            });
+            let block = block.copy();
+            let monitor: id = msg_send![
+                class!(NSEvent),
+                addGlobalMonitorForEventsMatchingMask: mask
+                handler: &*block
+            ];
+            std::mem::forget(block);
+
+            state.media_key_monitor = Some(monitor);
+        }
     }
 
     fn request_user_attention(&self, attention_type: crate::AttentionType) {
@@ -1544,11 +1667,36 @@ impl Platform for MacPlatform {
 
     fn show_context_menu(
         &self,
-        _position: crate::Point<crate::Pixels>,
-        _items: Vec<crate::TrayMenuItem>,
+        position: crate::Point<crate::Pixels>,
+        items: Vec<crate::TrayMenuItem>,
         callback: Box<dyn FnMut(crate::SharedString)>,
     ) {
         self.0.lock().context_menu_callback = Some(callback);
+
+        unsafe {
+            let menu: id = msg_send![class!(NSMenu), new];
+            let _: () = msg_send![menu, setAutoenablesItems: NO];
+            super::tray::build_menu_with_selector(
+                menu,
+                &items,
+                sel!(handleContextMenuItem:),
+            );
+
+            let main_screen: id = cocoa::appkit::NSScreen::mainScreen(nil);
+            let screen_height = if main_screen != nil {
+                cocoa::appkit::NSScreen::frame(main_screen).size.height
+            } else {
+                0.0
+            };
+
+            let point = cocoa::foundation::NSPoint::new(
+                position.x.0 as f64,
+                screen_height - position.y.0 as f64,
+            );
+
+            let _: () = msg_send![menu, popUpMenuPositioningItem: nil atLocation: point inView: nil];
+            let _: () = msg_send![menu, release];
+        }
     }
 
     fn show_dialog(
@@ -1726,6 +1874,25 @@ extern "C" fn did_finish_launching(this: &mut Object, _: Sel, _: id) {
             object: nil
         ];
 
+        let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let ws_notification_center: id = msg_send![workspace, notificationCenter];
+
+        let power_notifications = [
+            "NSWorkspaceWillSleepNotification",
+            "NSWorkspaceDidWakeNotification",
+            "NSWorkspaceSessionDidResignActiveNotification",
+            "NSWorkspaceSessionDidBecomeActiveNotification",
+            "NSWorkspaceWillPowerOffNotification",
+        ];
+        for name in &power_notifications {
+            let ns_name = ns_string(name);
+            let _: () = msg_send![ws_notification_center, addObserver: this as id
+                selector: sel!(handleSystemPowerEvent:)
+                name: ns_name
+                object: nil
+            ];
+        }
+
         let platform = get_mac_platform(this);
         let callback = platform.0.lock().finish_launching.take();
         if let Some(callback) = callback {
@@ -1893,6 +2060,57 @@ extern "C" fn handle_tray_panel_click(this: &mut Object, _: Sel, _sender: id) {
             platform_ptr as *mut c_void,
             Some(invoke),
         );
+    }
+}
+
+extern "C" fn handle_system_power_event(this: &mut Object, _: Sel, notification: id) {
+    unsafe {
+        let name: id = msg_send![notification, name];
+        let name_str: *const c_char = msg_send![name, UTF8String];
+        let name_cstr = CStr::from_ptr(name_str);
+        let name_bytes = name_cstr.to_bytes();
+
+        let event = match name_bytes {
+            b"NSWorkspaceWillSleepNotification" => crate::SystemPowerEvent::Suspend,
+            b"NSWorkspaceDidWakeNotification" => crate::SystemPowerEvent::Resume,
+            b"NSWorkspaceSessionDidResignActiveNotification" => {
+                crate::SystemPowerEvent::LockScreen
+            }
+            b"NSWorkspaceSessionDidBecomeActiveNotification" => {
+                crate::SystemPowerEvent::UnlockScreen
+            }
+            b"NSWorkspaceWillPowerOffNotification" => crate::SystemPowerEvent::Shutdown,
+            _ => return,
+        };
+
+        let platform = get_mac_platform(this);
+        let mut lock = platform.0.lock();
+        if let Some(mut callback) = lock.system_power_callback.take() {
+            drop(lock);
+            callback(event);
+            platform.0.lock().system_power_callback = Some(callback);
+        }
+    }
+}
+
+extern "C" fn handle_context_menu_item(this: &mut Object, _: Sel, item: id) {
+    unsafe {
+        let platform = get_mac_platform(this);
+        let represented: id = msg_send![item, representedObject];
+        if represented == nil {
+            return;
+        }
+        let len: usize = msg_send![represented, lengthOfBytesUsingEncoding: NSUTF8StringEncoding];
+        let bytes: *const u8 = msg_send![represented, UTF8String];
+        let id_str = std::str::from_utf8(slice::from_raw_parts(bytes, len)).unwrap_or("");
+        let shared_id: SharedString = id_str.to_string().into();
+
+        let mut lock = platform.0.lock();
+        if let Some(mut callback) = lock.context_menu_callback.take() {
+            drop(lock);
+            callback(shared_id);
+            platform.0.lock().context_menu_callback = Some(callback);
+        }
     }
 }
 

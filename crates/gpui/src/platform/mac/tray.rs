@@ -100,7 +100,7 @@ impl MacTray {
 
             let menu: id = msg_send![class!(NSMenu), new];
             let _: () = msg_send![menu, setAutoenablesItems: NO];
-            build_menu(menu, &items);
+            build_menu_with_selector(menu, &items, sel!(handleTrayMenuItem:));
 
             self.stored_menu.set(menu);
 
@@ -188,12 +188,16 @@ unsafe fn get_app_delegate() -> id {
     msg_send![app, delegate]
 }
 
-unsafe fn configure_actionable_item(menu_item: id, item_id: &str) {
+pub(crate) unsafe fn configure_actionable_item_with_selector(
+    menu_item: id,
+    item_id: &str,
+    selector: objc::runtime::Sel,
+) {
     unsafe {
         let delegate = get_app_delegate();
         if delegate != nil {
             let _: () = msg_send![menu_item, setTarget: delegate];
-            let _: () = msg_send![menu_item, setAction: sel!(handleTrayMenuItem:)];
+            let _: () = msg_send![menu_item, setAction: selector];
             let represented = NSString::alloc(nil).init_str(item_id);
             let _: () = msg_send![menu_item, setRepresentedObject: represented];
             let _: () = msg_send![menu_item, setEnabled: YES];
@@ -201,7 +205,11 @@ unsafe fn configure_actionable_item(menu_item: id, item_id: &str) {
     }
 }
 
-unsafe fn build_menu(menu: id, items: &[TrayMenuItem]) {
+pub(crate) unsafe fn build_menu_with_selector(
+    menu: id,
+    items: &[TrayMenuItem],
+    selector: objc::runtime::Sel,
+) {
     unsafe {
         for item in items {
             match item {
@@ -211,7 +219,7 @@ unsafe fn build_menu(menu: id, items: &[TrayMenuItem]) {
                     let empty = NSString::alloc(nil).init_str("");
                     let menu_item: id =
                         msg_send![menu_item, initWithTitle:title action:nil keyEquivalent:empty];
-                    configure_actionable_item(menu_item, id.as_ref());
+                    configure_actionable_item_with_selector(menu_item, id.as_ref(), selector);
                     let _: () = msg_send![menu, addItem: menu_item];
                 }
                 TrayMenuItem::Separator => {
@@ -228,7 +236,7 @@ unsafe fn build_menu(menu: id, items: &[TrayMenuItem]) {
                     let menu_item: id =
                         msg_send![menu_item, initWithTitle:title action:nil keyEquivalent:empty];
                     let submenu: id = msg_send![class!(NSMenu), new];
-                    build_menu(submenu, sub_items);
+                    build_menu_with_selector(submenu, sub_items, selector);
                     let _: () = msg_send![menu_item, setSubmenu: submenu];
                     let _: () = msg_send![menu, addItem: menu_item];
                 }
@@ -238,7 +246,7 @@ unsafe fn build_menu(menu: id, items: &[TrayMenuItem]) {
                     let empty = NSString::alloc(nil).init_str("");
                     let menu_item: id =
                         msg_send![menu_item, initWithTitle:title action:nil keyEquivalent:empty];
-                    configure_actionable_item(menu_item, id.as_ref());
+                    configure_actionable_item_with_selector(menu_item, id.as_ref(), selector);
                     let state: isize = if *checked { 1 } else { 0 };
                     let _: () = msg_send![menu_item, setState: state];
                     let _: () = msg_send![menu, addItem: menu_item];

@@ -1594,6 +1594,56 @@ impl PlatformWindow for MacWindow {
             })
             .detach();
     }
+
+    fn set_progress_bar(&self, state: crate::ProgressBarState) {
+        unsafe {
+            let app: id = msg_send![class!(NSApplication), sharedApplication];
+            let dock_tile: id = msg_send![app, dockTile];
+            if dock_tile == nil {
+                return;
+            }
+
+            match state {
+                crate::ProgressBarState::None => {
+                    let _: () = msg_send![dock_tile, setContentView: nil];
+                    let _: () = msg_send![dock_tile, setBadgeLabel: nil];
+                    let _: () = msg_send![dock_tile, display];
+                }
+                crate::ProgressBarState::Indeterminate => {
+                    let indicator: id = msg_send![class!(NSProgressIndicator), alloc];
+                    let frame = NSRect {
+                        origin: NSPoint::new(0.0, 0.0),
+                        size: NSSize::new(140.0, 140.0),
+                    };
+                    let indicator: id = msg_send![indicator, initWithFrame: frame];
+                    let _: () = msg_send![indicator, setStyle: 0i64]; // NSProgressIndicatorBarStyle
+                    let _: () = msg_send![indicator, setIndeterminate: YES];
+                    let _: () = msg_send![indicator, startAnimation: nil];
+                    let _: () = msg_send![dock_tile, setContentView: indicator];
+                    let _: () = msg_send![indicator, release];
+                    let _: () = msg_send![dock_tile, display];
+                }
+                crate::ProgressBarState::Normal(pct)
+                | crate::ProgressBarState::Error(pct)
+                | crate::ProgressBarState::Paused(pct) => {
+                    let indicator: id = msg_send![class!(NSProgressIndicator), alloc];
+                    let frame = NSRect {
+                        origin: NSPoint::new(0.0, 0.0),
+                        size: NSSize::new(140.0, 140.0),
+                    };
+                    let indicator: id = msg_send![indicator, initWithFrame: frame];
+                    let _: () = msg_send![indicator, setStyle: 0i64]; // NSProgressIndicatorBarStyle
+                    let _: () = msg_send![indicator, setIndeterminate: NO];
+                    let _: () = msg_send![indicator, setMinValue: 0.0f64];
+                    let _: () = msg_send![indicator, setMaxValue: 100.0f64];
+                    let _: () = msg_send![indicator, setDoubleValue: pct * 100.0];
+                    let _: () = msg_send![dock_tile, setContentView: indicator];
+                    let _: () = msg_send![indicator, release];
+                    let _: () = msg_send![dock_tile, display];
+                }
+            }
+        }
+    }
 }
 
 impl rwh::HasWindowHandle for MacWindow {
