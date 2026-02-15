@@ -1323,6 +1323,17 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                 let keycode = Keycode::from(key + MIN_KEYCODE);
                 let keysym = keymap_state.key_get_one_sym(keycode);
 
+                if matches!(key_state, wl_keyboard::KeyState::Pressed) {
+                    if let Some(media_event) =
+                        crate::platform::linux::keysym_to_media_key(keysym)
+                    {
+                        if let Some(cb) = state.common.callbacks.media_key.as_mut() {
+                            cb(media_event);
+                        }
+                        return;
+                    }
+                }
+
                 match key_state {
                     wl_keyboard::KeyState::Pressed if !keysym.is_modifier_key() => {
                         let mut keystroke =

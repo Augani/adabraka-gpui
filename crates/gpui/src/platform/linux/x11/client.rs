@@ -1005,6 +1005,15 @@ impl X11Client {
                         return Some(());
                     }
 
+                    if let Some(media_event) =
+                        crate::platform::linux::keysym_to_media_key(keysym)
+                    {
+                        if let Some(cb) = state.common.callbacks.media_key.as_mut() {
+                            cb(media_event);
+                        }
+                        return Some(());
+                    }
+
                     // should be called after key_get_one_sym
                     state.xkb.update_key(code, xkbc::KeyDirection::Down);
 
@@ -1776,6 +1785,38 @@ impl LinuxClient for X11Client {
         let xcb = state.xcb_connection.clone();
         let root = xcb.setup().roots[state.x_root_index].root;
         state.global_hotkey.unregister(id, &xcb, root);
+    }
+
+    fn system_idle_time(&self) -> Option<Duration> {
+        let state = self.0.borrow();
+        let screen = &state.xcb_connection.setup().roots[state.x_root_index];
+        let reply = x11rb::protocol::screensaver::query_info(&*state.xcb_connection, screen.root)
+            .ok()?
+            .reply()
+            .ok()?;
+        Some(Duration::from_millis(reply.ms_since_user_input as u64))
+    }
+
+    fn request_user_attention(
+        &self,
+        _level: crate::AttentionType,
+        handle: Option<AnyWindowHandle>,
+    ) {
+        let state = self.0.borrow();
+        let Some(x_window) = find_x_window_for_handle(&state, handle) else {
+            return;
+        };
+        let root = state.xcb_connection.setup().roots[state.x_root_index].root;
+        send_net_wm_state_attention(&state.xcb_connection, &state.atoms, x_window, root, true);
+    }
+
+    fn cancel_user_attention(&self, handle: Option<AnyWindowHandle>) {
+        let state = self.0.borrow();
+        let Some(x_window) = find_x_window_for_handle(&state, handle) else {
+            return;
+        };
+        let root = state.xcb_connection.setup().roots[state.x_root_index].root;
+        send_net_wm_state_attention(&state.xcb_connection, &state.atoms, x_window, root, false);
     }
 }
 
@@ -2597,4 +2638,49 @@ fn get_dpi_factor((width_px, height_px): (u32, u32), (width_mm, height_mm): (u64
 #[inline]
 fn valid_scale_factor(scale_factor: f32) -> bool {
     scale_factor.is_sign_positive() && scale_factor.is_normal()
+}
+
+fn find_x_window_for_handle(
+    state: &X11ClientState,
+    handle: Option<AnyWindowHandle>,
+) -> Option<xproto::Window> {
+    if let Some(handle) = handle {
+        for (&x_window, window_ref) in &state.windows {
+            if window_ref.handle() == handle {
+                return Some(x_window);
+            }
+        }
+        None
+    } else {
+        state.keyboard_focused_window
+    }
+}
+
+fn send_net_wm_state_attention(
+    xcb: &XCBConnection,
+    atoms: &XcbAtoms,
+    x_window: xproto::Window,
+    root: xproto::Window,
+    add: bool,
+) {
+    let action: u32 = if add { 1 } else { 0 };
+    let event = ClientMessageEvent::new(
+        32,
+        x_window,
+        atoms._NET_WM_STATE,
+        ClientMessageData::from([
+            action,
+            atoms._NET_WM_STATE_DEMANDS_ATTENTION,
+            0,
+            1,
+            0,
+        ]),
+    );
+    let _ = xcb.send_event(
+        false,
+        root,
+        EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+        event,
+    );
+    let _ = xcb.flush();
 }

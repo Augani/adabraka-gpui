@@ -77,6 +77,7 @@ x11rb::atom_manager! {
         _NET_WM_WINDOW_TYPE_DIALOG,
         _NET_WM_WINDOW_TYPE_DOCK,
         _NET_WM_SYNC,
+        _NET_WM_STATE_DEMANDS_ATTENTION,
         _NET_SUPPORTED,
         _MOTIF_WM_HINTS,
         _GTK_SHOW_WINDOW_MENU,
