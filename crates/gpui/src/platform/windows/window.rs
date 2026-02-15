@@ -894,6 +894,39 @@ impl PlatformWindow for WindowsWindow {
             }
         }
     }
+
+    fn set_progress_bar(&self, state: crate::ProgressBarState) {
+        unsafe {
+            let taskbar: Result<ITaskbarList3> =
+                CoCreateInstance(&TaskbarList, None, CLSCTX_INPROC_SERVER);
+            let Ok(taskbar) = taskbar else { return };
+            if taskbar.HrInit().is_err() {
+                return;
+            }
+
+            let hwnd = self.0.hwnd;
+            match state {
+                crate::ProgressBarState::None => {
+                    let _ = taskbar.SetProgressState(hwnd, TBPF_NOPROGRESS);
+                }
+                crate::ProgressBarState::Indeterminate => {
+                    let _ = taskbar.SetProgressState(hwnd, TBPF_INDETERMINATE);
+                }
+                crate::ProgressBarState::Normal(pct) => {
+                    let _ = taskbar.SetProgressState(hwnd, TBPF_NORMAL);
+                    let _ = taskbar.SetProgressValue(hwnd, (pct * 100.0) as u64, 100);
+                }
+                crate::ProgressBarState::Error(pct) => {
+                    let _ = taskbar.SetProgressState(hwnd, TBPF_ERROR);
+                    let _ = taskbar.SetProgressValue(hwnd, (pct * 100.0) as u64, 100);
+                }
+                crate::ProgressBarState::Paused(pct) => {
+                    let _ = taskbar.SetProgressState(hwnd, TBPF_PAUSED);
+                    let _ = taskbar.SetProgressValue(hwnd, (pct * 100.0) as u64, 100);
+                }
+            }
+        }
+    }
 }
 
 #[implement(IDropTarget)]

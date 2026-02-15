@@ -2,17 +2,17 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use windows::{
+    core::PCWSTR,
     Win32::{
         Foundation::*,
         UI::{
             Shell::{
-                NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE,
-                NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW,
+                Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD,
+                NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
             },
             WindowsAndMessaging::*,
         },
     },
-    core::PCWSTR,
 };
 
 use crate::{SharedString, TrayMenuItem, WM_GPUI_TRAY_ICON};
@@ -156,7 +156,7 @@ impl WindowsTray {
         }
     }
 
-    unsafe fn build_menu(
+    pub(crate) unsafe fn build_menu(
         hmenu: HMENU,
         items: &[TrayMenuItem],
         counter: &mut u32,

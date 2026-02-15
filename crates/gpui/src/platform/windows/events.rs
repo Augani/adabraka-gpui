@@ -27,6 +27,10 @@ pub(crate) const WM_GPUI_FORCE_UPDATE_WINDOW: u32 = WM_USER + 5;
 pub(crate) const WM_GPUI_KEYBOARD_LAYOUT_CHANGED: u32 = WM_USER + 6;
 pub(crate) const WM_GPUI_GPU_DEVICE_LOST: u32 = WM_USER + 7;
 pub(crate) const WM_GPUI_TRAY_ICON: u32 = WM_USER + 8;
+pub(crate) const WM_GPUI_NETWORK_CHANGE: u32 = WM_USER + 10;
+pub(crate) const WM_GPUI_MEDIA_KEY: u32 = WM_USER + 11;
+pub(crate) const WM_GPUI_CONTEXT_MENU_ACTION: u32 = WM_USER + 12;
+pub(crate) const WM_WTSSESSION_CHANGE: u32 = 0x02B1;
 
 const SIZE_MOVE_LOOP_TIMER_ID: usize = 1;
 const AUTO_HIDE_TASKBAR_THICKNESS_PX: i32 = 1;
@@ -106,6 +110,7 @@ impl WindowsWindowInner {
             WM_SETTINGCHANGE => self.handle_system_settings_changed(handle, wparam, lparam),
             WM_INPUTLANGCHANGE => self.handle_input_language_changed(),
             WM_SHOWWINDOW => self.handle_window_visibility_changed(handle, wparam),
+            WM_APPCOMMAND => self.handle_app_command(lparam),
             WM_GPUI_CURSOR_STYLE_CHANGED => self.handle_cursor_changed(lparam),
             WM_GPUI_FORCE_UPDATE_WINDOW => self.draw_window(handle, true),
             WM_GPUI_GPU_DEVICE_LOST => self.handle_device_lost(lparam),
@@ -1052,6 +1057,40 @@ impl WindowsWindowInner {
         }
 
         None
+    }
+
+    fn handle_app_command(&self, lparam: LPARAM) -> Option<isize> {
+        let cmd = ((lparam.0 >> 16) & 0xFFF) as u32;
+        const APPCOMMAND_MEDIA_NEXTTRACK: u32 = 11;
+        const APPCOMMAND_MEDIA_PREVIOUSTRACK: u32 = 12;
+        const APPCOMMAND_MEDIA_STOP: u32 = 13;
+        const APPCOMMAND_MEDIA_PLAY_PAUSE: u32 = 14;
+        const APPCOMMAND_MEDIA_PLAY: u32 = 46;
+        const APPCOMMAND_MEDIA_PAUSE: u32 = 47;
+
+        let is_media = matches!(
+            cmd,
+            APPCOMMAND_MEDIA_NEXTTRACK
+                | APPCOMMAND_MEDIA_PREVIOUSTRACK
+                | APPCOMMAND_MEDIA_STOP
+                | APPCOMMAND_MEDIA_PLAY_PAUSE
+                | APPCOMMAND_MEDIA_PLAY
+                | APPCOMMAND_MEDIA_PAUSE
+        );
+        if is_media {
+            unsafe {
+                PostMessageW(
+                    Some(self.platform_window_handle),
+                    WM_GPUI_MEDIA_KEY,
+                    WPARAM(self.validation_number),
+                    LPARAM(cmd as isize),
+                )
+                .log_err();
+            }
+            Some(1)
+        } else {
+            None
+        }
     }
 
     fn handle_cursor_changed(&self, lparam: LPARAM) -> Option<isize> {

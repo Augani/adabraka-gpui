@@ -1,5 +1,6 @@
 use std::{
     cell::RefCell,
+    collections::HashMap,
     ffi::OsStr,
     mem::ManuallyDrop,
     path::{Path, PathBuf},
@@ -8,6 +9,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
+    time::Duration,
 };
 
 use ::util::{ResultExt, paths::SanitizedPath};
@@ -62,6 +64,10 @@ pub(crate) struct WindowsPlatformState {
     // NOTE: standard cursor handles don't need to close.
     pub(crate) current_cursor: Option<HCURSOR>,
     directx_devices: ManuallyDrop<DirectXDevices>,
+    power_save_blockers: HashMap<u32, windows::Win32::System::Power::EXECUTION_STATE>,
+    next_blocker_id: u32,
+    context_menu_command_map: HashMap<u32, SharedString>,
+    flashing_hwnd: Option<HWND>,
 }
 
 #[derive(Default)]
@@ -76,6 +82,10 @@ struct PlatformCallbacks {
     tray_icon_event: Option<Box<dyn FnMut(TrayIconEvent)>>,
     tray_menu_action: Option<Box<dyn FnMut(SharedString)>>,
     global_hotkey: Option<Box<dyn FnMut(u32)>>,
+    system_power: Option<Box<dyn FnMut(SystemPowerEvent)>>,
+    network_status_change: Option<Box<dyn FnMut(NetworkStatus)>>,
+    media_key: Option<Box<dyn FnMut(MediaKeyEvent)>>,
+    context_menu: Option<Box<dyn FnMut(SharedString)>>,
 }
 
 impl WindowsPlatformState {
@@ -92,6 +102,10 @@ impl WindowsPlatformState {
             current_cursor,
             directx_devices,
             menus: Vec::new(),
+            power_save_blockers: HashMap::new(),
+            next_blocker_id: 1,
+            context_menu_command_map: HashMap::new(),
+            flashing_hwnd: None,
         }
     }
 }
@@ -139,6 +153,14 @@ impl WindowsPlatform {
         };
         let inner = context.inner.take().unwrap()?;
         let handle = result?;
+
+        unsafe {
+            let _ = windows::Win32::System::RemoteDesktop::WTSRegisterSessionNotification(
+                handle,
+                windows::Win32::System::RemoteDesktop::NOTIFY_FOR_THIS_SESSION,
+            );
+        }
+
         let dispatcher = Arc::new(WindowsDispatcher::new(
             main_sender,
             handle,
@@ -759,6 +781,182 @@ impl Platform for WindowsPlatform {
             Err(anyhow!("Failed to create tray for notification"))
         }
     }
+
+    fn on_system_power_event(&self, callback: Box<dyn FnMut(SystemPowerEvent)>) {
+        self.inner.state.borrow_mut().callbacks.system_power = Some(callback);
+    }
+
+    fn start_power_save_blocker(&self, kind: PowerSaveBlockerKind) -> Option<u32> {
+        let mut state = self.inner.state.borrow_mut();
+        let id = state.next_blocker_id;
+        state.next_blocker_id += 1;
+        let flags = super::power::power_save_flags(kind);
+        state.power_save_blockers.insert(id, flags);
+        super::power::apply_combined_power_state(&state.power_save_blockers);
+        Some(id)
+    }
+
+    fn stop_power_save_blocker(&self, id: u32) {
+        let mut state = self.inner.state.borrow_mut();
+        state.power_save_blockers.remove(&id);
+        super::power::apply_combined_power_state(&state.power_save_blockers);
+    }
+
+    fn system_idle_time(&self) -> Option<Duration> {
+        super::power::system_idle_time()
+    }
+
+    fn network_status(&self) -> NetworkStatus {
+        super::network::query_network_status()
+    }
+
+    fn on_network_status_change(&self, callback: Box<dyn FnMut(NetworkStatus)>) {
+        self.inner
+            .state
+            .borrow_mut()
+            .callbacks
+            .network_status_change = Some(callback);
+        super::network::start_network_monitoring(self.handle, self.inner.validation_number);
+    }
+
+    fn on_media_key_event(&self, callback: Box<dyn FnMut(MediaKeyEvent)>) {
+        self.inner.state.borrow_mut().callbacks.media_key = Some(callback);
+    }
+
+    fn request_user_attention(&self, attention_type: AttentionType) {
+        let hwnd = self
+            .find_current_active_window()
+            .or_else(|| {
+                self.raw_window_handles
+                    .read()
+                    .first()
+                    .map(|h| h.as_raw())
+            });
+        let Some(hwnd) = hwnd else { return };
+
+        let (flags, count) = match attention_type {
+            AttentionType::Informational => (
+                FLASHW_TRAY | FLASHW_TIMERNOFG,
+                3u32,
+            ),
+            AttentionType::Critical => (
+                FLASHW_ALL | FLASHW_TIMER,
+                0u32,
+            ),
+        };
+        let mut fi = FLASHWINFO {
+            cbSize: std::mem::size_of::<FLASHWINFO>() as u32,
+            hwnd,
+            dwFlags: flags,
+            uCount: count,
+            dwTimeout: 0,
+        };
+        unsafe {
+            FlashWindowEx(&mut fi);
+        }
+        self.inner.state.borrow_mut().flashing_hwnd = Some(hwnd);
+    }
+
+    fn cancel_user_attention(&self) {
+        let hwnd = self.inner.state.borrow_mut().flashing_hwnd.take();
+        if let Some(hwnd) = hwnd {
+            let mut fi = FLASHWINFO {
+                cbSize: std::mem::size_of::<FLASHWINFO>() as u32,
+                hwnd,
+                dwFlags: FLASHW_STOP,
+                uCount: 0,
+                dwTimeout: 0,
+            };
+            unsafe {
+                FlashWindowEx(&mut fi);
+            }
+        }
+    }
+
+    fn show_context_menu(
+        &self,
+        position: Point<Pixels>,
+        items: Vec<TrayMenuItem>,
+        callback: Box<dyn FnMut(SharedString)>,
+    ) {
+        {
+            let mut state = self.inner.state.borrow_mut();
+            state.callbacks.context_menu = Some(callback);
+            state.context_menu_command_map.clear();
+        }
+
+        unsafe {
+            let hmenu = match CreatePopupMenu() {
+                Ok(m) => m,
+                Err(_) => return,
+            };
+
+            {
+                let mut state = self.inner.state.borrow_mut();
+                let mut counter: u32 = 10000;
+                WindowsTray::build_menu(
+                    hmenu,
+                    &items,
+                    &mut counter,
+                    &mut state.context_menu_command_map,
+                );
+            }
+
+            let screen_x = position.x.0 as i32;
+            let screen_y = position.y.0 as i32;
+
+            let _ = SetForegroundWindow(self.handle);
+            let result = TrackPopupMenu(
+                hmenu,
+                TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD,
+                screen_x,
+                screen_y,
+                0,
+                self.handle,
+                None,
+            );
+            let _ = DestroyMenu(hmenu);
+
+            if let Ok(result) = result {
+                if result.0 != 0 {
+                    PostMessageW(
+                        Some(self.handle),
+                        WM_GPUI_CONTEXT_MENU_ACTION,
+                        WPARAM(self.inner.validation_number),
+                        LPARAM(result.0 as isize),
+                    )
+                    .log_err();
+                }
+            }
+        }
+    }
+
+    fn show_dialog(&self, options: DialogOptions) -> oneshot::Receiver<usize> {
+        let (tx, rx) = oneshot::channel();
+        let hwnd = self.find_current_active_window().unwrap_or(self.handle);
+        self.foreground_executor()
+            .spawn(async move {
+                let _ = tx.send(super::dialog::show_dialog_sync(hwnd, options));
+            })
+            .detach();
+        rx
+    }
+
+    fn os_info(&self) -> OsInfo {
+        super::os_info::get_os_info()
+    }
+
+    fn biometric_status(&self) -> BiometricStatus {
+        BiometricStatus::Unavailable
+    }
+
+    fn authenticate_biometric(
+        &self,
+        _reason: &str,
+        callback: Box<dyn FnOnce(bool) + Send>,
+    ) {
+        callback(false);
+    }
 }
 
 impl WindowsPlatformInner {
@@ -791,6 +989,11 @@ impl WindowsPlatformInner {
             WM_GPUI_TRAY_ICON => self.handle_tray_icon_event(handle, lparam),
             WM_COMMAND => self.handle_tray_menu_command(wparam),
             WM_HOTKEY => self.handle_global_hotkey(wparam),
+            WM_POWERBROADCAST => self.handle_power_broadcast(wparam),
+            WM_WTSSESSION_CHANGE => self.handle_session_change(wparam),
+            WM_GPUI_NETWORK_CHANGE => self.handle_network_change(),
+            WM_GPUI_MEDIA_KEY => self.handle_media_key(wparam, lparam),
+            WM_GPUI_CONTEXT_MENU_ACTION => self.handle_context_menu_action(wparam, lparam),
             _ => None,
         };
         if let Some(result) = handled {
@@ -939,11 +1142,123 @@ impl WindowsPlatformInner {
 
         Some(0)
     }
+
+    fn handle_power_broadcast(&self, wparam: WPARAM) -> Option<isize> {
+        const PBT_APMSUSPEND: u32 = 0x0004;
+        const PBT_APMRESUMEAUTOMATIC: u32 = 0x0012;
+
+        let event = match wparam.0 as u32 {
+            PBT_APMSUSPEND => Some(SystemPowerEvent::Suspend),
+            PBT_APMRESUMEAUTOMATIC => Some(SystemPowerEvent::Resume),
+            _ => None,
+        };
+        if let Some(event) = event {
+            let mut lock = self.state.borrow_mut();
+            let mut callback = lock.callbacks.system_power.take();
+            drop(lock);
+            if let Some(ref mut cb) = callback {
+                cb(event);
+            }
+            self.state.borrow_mut().callbacks.system_power = callback;
+        }
+        Some(1)
+    }
+
+    fn handle_session_change(&self, wparam: WPARAM) -> Option<isize> {
+        const WTS_SESSION_LOCK: u32 = 0x7;
+        const WTS_SESSION_UNLOCK: u32 = 0x8;
+
+        let event = match wparam.0 as u32 {
+            WTS_SESSION_LOCK => Some(SystemPowerEvent::LockScreen),
+            WTS_SESSION_UNLOCK => Some(SystemPowerEvent::UnlockScreen),
+            _ => None,
+        };
+        if let Some(event) = event {
+            let mut lock = self.state.borrow_mut();
+            let mut callback = lock.callbacks.system_power.take();
+            drop(lock);
+            if let Some(ref mut cb) = callback {
+                cb(event);
+            }
+            self.state.borrow_mut().callbacks.system_power = callback;
+        }
+        Some(0)
+    }
+
+    fn handle_network_change(&self) -> Option<isize> {
+        let status = super::network::query_network_status();
+        let mut lock = self.state.borrow_mut();
+        let mut callback = lock.callbacks.network_status_change.take();
+        drop(lock);
+        if let Some(ref mut cb) = callback {
+            cb(status);
+        }
+        self.state.borrow_mut().callbacks.network_status_change = callback;
+        Some(0)
+    }
+
+    fn handle_media_key(&self, wparam: WPARAM, lparam: LPARAM) -> Option<isize> {
+        if wparam.0 != self.validation_number {
+            return None;
+        }
+        const APPCOMMAND_MEDIA_NEXTTRACK: u32 = 11;
+        const APPCOMMAND_MEDIA_PREVIOUSTRACK: u32 = 12;
+        const APPCOMMAND_MEDIA_STOP: u32 = 13;
+        const APPCOMMAND_MEDIA_PLAY_PAUSE: u32 = 14;
+        const APPCOMMAND_MEDIA_PLAY: u32 = 46;
+        const APPCOMMAND_MEDIA_PAUSE: u32 = 47;
+
+        let cmd = lparam.0 as u32;
+        let event = match cmd {
+            APPCOMMAND_MEDIA_PLAY_PAUSE => MediaKeyEvent::PlayPause,
+            APPCOMMAND_MEDIA_NEXTTRACK => MediaKeyEvent::NextTrack,
+            APPCOMMAND_MEDIA_PREVIOUSTRACK => MediaKeyEvent::PreviousTrack,
+            APPCOMMAND_MEDIA_STOP => MediaKeyEvent::Stop,
+            APPCOMMAND_MEDIA_PLAY => MediaKeyEvent::Play,
+            APPCOMMAND_MEDIA_PAUSE => MediaKeyEvent::Pause,
+            _ => return None,
+        };
+        let mut lock = self.state.borrow_mut();
+        let mut callback = lock.callbacks.media_key.take();
+        drop(lock);
+        if let Some(ref mut cb) = callback {
+            cb(event);
+        }
+        self.state.borrow_mut().callbacks.media_key = callback;
+        Some(0)
+    }
+
+    fn handle_context_menu_action(&self, wparam: WPARAM, lparam: LPARAM) -> Option<isize> {
+        if wparam.0 != self.validation_number {
+            return None;
+        }
+        let cmd_id = lparam.0 as u32;
+        let item_id = self
+            .state
+            .borrow()
+            .context_menu_command_map
+            .get(&cmd_id)
+            .cloned();
+        let Some(item_id) = item_id else {
+            return None;
+        };
+        let mut lock = self.state.borrow_mut();
+        let mut callback = lock.callbacks.context_menu.take();
+        drop(lock);
+        if let Some(ref mut cb) = callback {
+            cb(item_id);
+        }
+        self.state.borrow_mut().callbacks.context_menu = callback;
+        Some(0)
+    }
 }
 
 impl Drop for WindowsPlatform {
     fn drop(&mut self) {
         unsafe {
+            let _ = windows::Win32::System::RemoteDesktop::WTSUnRegisterSessionNotification(
+                self.handle,
+            );
             DestroyWindow(self.handle)
                 .context("Destroying platform window")
                 .log_err();
@@ -954,6 +1269,13 @@ impl Drop for WindowsPlatform {
 
 impl Drop for WindowsPlatformState {
     fn drop(&mut self) {
+        if !self.power_save_blockers.is_empty() {
+            unsafe {
+                windows::Win32::System::Power::SetThreadExecutionState(
+                    windows::Win32::System::Power::ES_CONTINUOUS,
+                );
+            }
+        }
         unsafe {
             ManuallyDrop::drop(&mut self.directx_devices);
         }

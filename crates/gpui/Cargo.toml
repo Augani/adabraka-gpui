@@ -712,6 +712,9 @@ features = [
     "Win32_UI_Shell_Common",
     "Win32_UI_Shell_PropertiesSystem",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Power",
+    "Win32_System_RemoteDesktop",
+    "Win32_Networking_NetworkListManager",
 ]
 
 [target.'cfg(target_os = "windows")'.dependencies.windows-core]
