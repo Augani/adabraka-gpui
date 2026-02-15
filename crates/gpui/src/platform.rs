@@ -327,6 +327,43 @@ pub(crate) trait Platform: 'static {
     }
 
     fn set_keep_alive_without_windows(&self, _keep_alive: bool) {}
+
+    fn on_system_power_event(&self, _callback: Box<dyn FnMut(SystemPowerEvent)>) {}
+    fn start_power_save_blocker(&self, _kind: PowerSaveBlockerKind) -> Option<u32> { None }
+    fn stop_power_save_blocker(&self, _id: u32) {}
+    fn system_idle_time(&self) -> Option<Duration> { None }
+    fn network_status(&self) -> NetworkStatus { NetworkStatus::Online }
+    fn on_network_status_change(&self, _callback: Box<dyn FnMut(NetworkStatus)>) {}
+    fn on_media_key_event(&self, _callback: Box<dyn FnMut(MediaKeyEvent)>) {}
+    fn request_user_attention(&self, _attention_type: AttentionType) {}
+    fn cancel_user_attention(&self) {}
+    fn set_dock_badge(&self, _label: Option<&str>) {}
+    fn show_context_menu(
+        &self,
+        _position: Point<Pixels>,
+        _items: Vec<TrayMenuItem>,
+        _callback: Box<dyn FnMut(SharedString)>,
+    ) {}
+    fn show_dialog(&self, _options: DialogOptions) -> oneshot::Receiver<usize> {
+        let (tx, rx) = oneshot::channel();
+        tx.send(0).ok();
+        rx
+    }
+    fn os_info(&self) -> OsInfo {
+        OsInfo {
+            name: std::env::consts::OS.into(),
+            arch: std::env::consts::ARCH.into(),
+            version: String::new().into(),
+            locale: String::new().into(),
+            hostname: String::new().into(),
+        }
+    }
+    fn biometric_status(&self) -> BiometricStatus { BiometricStatus::Unavailable }
+    fn authenticate_biometric(
+        &self,
+        _reason: &str,
+        _callback: Box<dyn FnOnce(bool)>,
+    ) {}
 }
 
 /// A handle to a platform's display, e.g. a monitor or laptop screen.
@@ -609,6 +646,7 @@ pub(crate) trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
         true
     }
     fn set_mouse_passthrough(&self, _passthrough: bool) {}
+    fn set_progress_bar(&self, _state: ProgressBarState) {}
 
     #[cfg(any(test, feature = "test-support"))]
     fn as_test(&mut self) -> Option<&mut TestWindow> {
@@ -1455,6 +1493,196 @@ pub enum PermissionStatus {
     Denied,
     /// Permission has not yet been requested.
     NotDetermined,
+}
+
+/// System power state change events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SystemPowerEvent {
+    /// The system is about to suspend/sleep.
+    Suspend,
+    /// The system has resumed from suspend/sleep.
+    Resume,
+    /// The screen has been locked.
+    LockScreen,
+    /// The screen has been unlocked.
+    UnlockScreen,
+    /// The system is shutting down.
+    Shutdown,
+}
+
+/// The kind of power save blocker to create.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PowerSaveBlockerKind {
+    /// Prevent the application from being suspended.
+    PreventAppSuspension,
+    /// Prevent the display from sleeping.
+    PreventDisplaySleep,
+}
+
+/// The current network connectivity status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetworkStatus {
+    /// The system has network connectivity.
+    Online,
+    /// The system has no network connectivity.
+    Offline,
+}
+
+/// Media key events from hardware media keys or OS media controls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaKeyEvent {
+    /// Play media.
+    Play,
+    /// Pause media.
+    Pause,
+    /// Toggle play/pause.
+    PlayPause,
+    /// Stop media playback.
+    Stop,
+    /// Skip to the next track.
+    NextTrack,
+    /// Skip to the previous track.
+    PreviousTrack,
+}
+
+/// The type of user attention to request from the OS.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttentionType {
+    /// An informational attention request (e.g. bounce dock icon once).
+    Informational,
+    /// A critical attention request (e.g. bounce dock icon continuously).
+    Critical,
+}
+
+/// The state of a taskbar/dock progress bar for a window.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ProgressBarState {
+    /// No progress bar is shown.
+    None,
+    /// An indeterminate progress bar is shown.
+    Indeterminate,
+    /// A normal progress bar with the given fraction (0.0 to 1.0).
+    Normal(f64),
+    /// An error progress bar with the given fraction (0.0 to 1.0).
+    Error(f64),
+    /// A paused progress bar with the given fraction (0.0 to 1.0).
+    Paused(f64),
+}
+
+/// The kind of a native dialog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DialogKind {
+    /// An informational dialog.
+    Info,
+    /// A warning dialog.
+    Warning,
+    /// An error dialog.
+    Error,
+}
+
+/// Options for displaying a native dialog.
+#[derive(Debug, Clone)]
+pub struct DialogOptions {
+    /// The kind of dialog to display.
+    pub kind: DialogKind,
+    /// The title of the dialog.
+    pub title: SharedString,
+    /// The primary message of the dialog.
+    pub message: SharedString,
+    /// Optional detail text shown below the message.
+    pub detail: Option<SharedString>,
+    /// The button labels for the dialog.
+    pub buttons: Vec<SharedString>,
+}
+
+/// Information about the operating system.
+#[derive(Debug, Clone)]
+pub struct OsInfo {
+    /// The name of the operating system (e.g. "macos", "linux", "windows").
+    pub name: SharedString,
+    /// The version of the operating system.
+    pub version: SharedString,
+    /// The CPU architecture (e.g. "x86_64", "aarch64").
+    pub arch: SharedString,
+    /// The system locale (e.g. "en-US").
+    pub locale: SharedString,
+    /// The hostname of the system.
+    pub hostname: SharedString,
+}
+
+/// The kind of biometric authentication available.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BiometricKind {
+    /// macOS Touch ID.
+    TouchId,
+    /// Windows Hello.
+    WindowsHello,
+    /// Generic fingerprint reader.
+    Fingerprint,
+}
+
+/// The availability status of biometric authentication.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BiometricStatus {
+    /// Biometric authentication is available with the given kind.
+    Available(BiometricKind),
+    /// Biometric authentication is not available.
+    Unavailable,
+}
+
+/// A snapshot of a window's state for save/restore.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WindowState {
+    /// The window bounds.
+    pub bounds: WindowBounds,
+    /// The display the window is on.
+    pub display_id: Option<DisplayId>,
+    /// Whether the window is fullscreen.
+    pub fullscreen: bool,
+}
+
+/// A semantic window position for positioning windows relative to the screen.
+#[derive(Debug, Clone, PartialEq)]
+pub enum WindowPosition {
+    /// Center the window on the primary display.
+    Center,
+    /// Center the window on the given display.
+    CenterOnDisplay(DisplayId),
+    /// Center the window above the tray icon area.
+    TrayCenter(Bounds<Pixels>),
+    /// Position the window in the top-right corner.
+    TopRight {
+        /// The margin from the screen edge.
+        margin: Pixels,
+    },
+    /// Position the window in the bottom-right corner.
+    BottomRight {
+        /// The margin from the screen edge.
+        margin: Pixels,
+    },
+    /// Position the window in the top-left corner.
+    TopLeft {
+        /// The margin from the screen edge.
+        margin: Pixels,
+    },
+    /// Position the window in the bottom-left corner.
+    BottomLeft {
+        /// The margin from the screen edge.
+        margin: Pixels,
+    },
+}
+
+/// Information collected for a crash report.
+#[derive(Debug, Clone)]
+pub struct CrashReport {
+    /// The error message.
+    pub message: String,
+    /// The backtrace at the time of the crash.
+    pub backtrace: String,
+    /// Information about the operating system.
+    pub os_info: OsInfo,
+    /// The application version, if available.
+    pub app_version: Option<String>,
 }
 
 /// The options that can be configured for a file dialog prompt
