@@ -31,9 +31,16 @@ mod text_system;
 
 mod active_window;
 mod auto_launch;
+mod biometric;
+mod dialog;
+mod dock;
 mod global_hotkey;
+mod media_keys;
+mod network;
+mod os_info;
 mod permissions;
 mod platform;
+mod power;
 mod tray;
 mod window;
 mod window_appearance;

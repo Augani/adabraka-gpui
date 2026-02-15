@@ -200,6 +200,11 @@ pub(crate) struct MacPlatformState {
     global_hotkey_callback: Option<Box<dyn FnMut(u32)>>,
     global_hotkey_monitors: Vec<id>,
     global_hotkey_registrations: std::collections::HashMap<u32, crate::Keystroke>,
+    system_power_callback: Option<Box<dyn FnMut(crate::SystemPowerEvent)>>,
+    network_change_callback: Option<Box<dyn FnMut(crate::NetworkStatus)>>,
+    media_key_callback: Option<Box<dyn FnMut(crate::MediaKeyEvent)>>,
+    attention_request_id: isize,
+    context_menu_callback: Option<Box<dyn FnMut(crate::SharedString)>>,
 }
 
 impl Default for MacPlatform {
@@ -249,6 +254,11 @@ impl MacPlatform {
             global_hotkey_callback: None,
             global_hotkey_monitors: Vec::new(),
             global_hotkey_registrations: std::collections::HashMap::new(),
+            system_power_callback: None,
+            network_change_callback: None,
+            media_key_callback: None,
+            attention_request_id: 0,
+            context_menu_callback: None,
         }))
     }
 
@@ -1488,6 +1498,76 @@ impl Platform for MacPlatform {
             }
             Ok(())
         })
+    }
+
+    fn on_system_power_event(&self, callback: Box<dyn FnMut(crate::SystemPowerEvent)>) {
+        self.0.lock().system_power_callback = Some(callback);
+    }
+
+    fn start_power_save_blocker(&self, kind: crate::PowerSaveBlockerKind) -> Option<u32> {
+        super::power::start_power_save_blocker(kind)
+    }
+
+    fn stop_power_save_blocker(&self, id: u32) {
+        super::power::stop_power_save_blocker(id);
+    }
+
+    fn system_idle_time(&self) -> Option<std::time::Duration> {
+        super::power::system_idle_time()
+    }
+
+    fn network_status(&self) -> crate::NetworkStatus {
+        super::network::network_status()
+    }
+
+    fn on_network_status_change(&self, callback: Box<dyn FnMut(crate::NetworkStatus)>) {
+        self.0.lock().network_change_callback = Some(callback);
+    }
+
+    fn on_media_key_event(&self, callback: Box<dyn FnMut(crate::MediaKeyEvent)>) {
+        self.0.lock().media_key_callback = Some(callback);
+    }
+
+    fn request_user_attention(&self, attention_type: crate::AttentionType) {
+        let id = super::dock::request_user_attention(attention_type);
+        self.0.lock().attention_request_id = id;
+    }
+
+    fn cancel_user_attention(&self) {
+        let id = self.0.lock().attention_request_id;
+        super::dock::cancel_user_attention(id);
+    }
+
+    fn set_dock_badge(&self, label: Option<&str>) {
+        super::dock::set_dock_badge(label);
+    }
+
+    fn show_context_menu(
+        &self,
+        _position: crate::Point<crate::Pixels>,
+        _items: Vec<crate::TrayMenuItem>,
+        callback: Box<dyn FnMut(crate::SharedString)>,
+    ) {
+        self.0.lock().context_menu_callback = Some(callback);
+    }
+
+    fn show_dialog(
+        &self,
+        options: crate::DialogOptions,
+    ) -> futures::channel::oneshot::Receiver<usize> {
+        super::dialog::show_dialog(options)
+    }
+
+    fn os_info(&self) -> crate::OsInfo {
+        super::os_info::get_os_info()
+    }
+
+    fn biometric_status(&self) -> crate::BiometricStatus {
+        super::biometric::biometric_status()
+    }
+
+    fn authenticate_biometric(&self, reason: &str, callback: Box<dyn FnOnce(bool)>) {
+        super::biometric::authenticate_biometric(reason, callback);
     }
 }
 
