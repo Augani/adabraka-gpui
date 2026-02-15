@@ -35,14 +35,16 @@ use util::{ResultExt, debug_panic};
 use crate::InspectorElementRegistry;
 use crate::{
     Action, ActionBuildError, ActionRegistry, Any, AnyView, AnyWindowHandle, AppContext, Asset,
-    AssetSource, BackgroundExecutor, Bounds, ClipboardItem, CursorStyle, DispatchPhase, DisplayId,
-    EventEmitter, FocusHandle, FocusMap, FocusedWindowInfo, ForegroundExecutor, Global, KeyBinding,
-    KeyContext, Keymap, Keystroke, LayoutId, Menu, MenuItem, OwnedMenu, PathPromptOptions,
-    PermissionStatus, Pixels, Platform, PlatformDisplay, PlatformKeyboardLayout,
-    PlatformKeyboardMapper, Point, PromptBuilder, PromptButton, PromptHandle, PromptLevel, Render,
-    RenderImage, RenderablePromptHandle, Reservation, ScreenCaptureSource, SharedString,
-    SubscriberSet, Subscription, SvgRenderer, Task, TextSystem, TrayIconEvent, TrayMenuItem,
-    Window, WindowAppearance, WindowHandle, WindowId, WindowInvalidator,
+    AssetSource, AttentionType, BackgroundExecutor, BiometricStatus, Bounds, ClipboardItem,
+    CrashReport, CursorStyle, DialogOptions, DispatchPhase, DisplayId, EventEmitter, FocusHandle,
+    FocusMap, FocusedWindowInfo, ForegroundExecutor, Global, KeyBinding, KeyContext, Keymap,
+    Keystroke, LayoutId, MediaKeyEvent, Menu, MenuItem, NetworkStatus, OsInfo, OwnedMenu,
+    PathPromptOptions, PermissionStatus, Pixels, Platform, PlatformDisplay,
+    PlatformKeyboardLayout, PlatformKeyboardMapper, Point, PowerSaveBlockerKind, PromptBuilder,
+    PromptButton, PromptHandle, PromptLevel, Render, RenderImage, RenderablePromptHandle,
+    Reservation, ScreenCaptureSource, SharedString, SubscriberSet, Subscription, SvgRenderer,
+    SystemPowerEvent, Task, TextSystem, TrayIconEvent, TrayMenuItem, Window, WindowAppearance,
+    WindowHandle, WindowId, WindowInvalidator,
     colors::{Colors, GlobalColors},
     current_platform, hash, init_app_menus,
 };
@@ -1107,6 +1109,164 @@ impl App {
     /// Set whether the application should stay alive when all windows are closed.
     pub fn set_keep_alive_without_windows(&self, keep_alive: bool) {
         self.platform.set_keep_alive_without_windows(keep_alive);
+    }
+
+    /// Register a callback for system power events (sleep, wake, shutdown).
+    pub fn on_system_power_event(
+        &self,
+        mut callback: impl FnMut(SystemPowerEvent, &mut App) + 'static,
+    ) {
+        let this = self.this.clone();
+        self.platform
+            .on_system_power_event(Box::new(move |event| {
+                if let Some(app) = this.upgrade() {
+                    callback(event, &mut app.borrow_mut());
+                }
+            }));
+    }
+
+    /// Start a power save blocker to prevent the system from sleeping or the display from dimming.
+    pub fn start_power_save_blocker(&self, kind: PowerSaveBlockerKind) -> Option<u32> {
+        self.platform.start_power_save_blocker(kind)
+    }
+
+    /// Stop a previously started power save blocker by its ID.
+    pub fn stop_power_save_blocker(&self, id: u32) {
+        self.platform.stop_power_save_blocker(id);
+    }
+
+    /// Get the duration since the last user input event.
+    pub fn system_idle_time(&self) -> Option<Duration> {
+        self.platform.system_idle_time()
+    }
+
+    /// Get the current network connectivity status.
+    pub fn network_status(&self) -> NetworkStatus {
+        self.platform.network_status()
+    }
+
+    /// Register a callback for network connectivity status changes.
+    pub fn on_network_status_change(
+        &self,
+        mut callback: impl FnMut(NetworkStatus, &mut App) + 'static,
+    ) {
+        let this = self.this.clone();
+        self.platform
+            .on_network_status_change(Box::new(move |status| {
+                if let Some(app) = this.upgrade() {
+                    callback(status, &mut app.borrow_mut());
+                }
+            }));
+    }
+
+    /// Register a callback for media key events (play, pause, next, previous).
+    pub fn on_media_key_event(
+        &self,
+        mut callback: impl FnMut(MediaKeyEvent, &mut App) + 'static,
+    ) {
+        let this = self.this.clone();
+        self.platform
+            .on_media_key_event(Box::new(move |event| {
+                if let Some(app) = this.upgrade() {
+                    callback(event, &mut app.borrow_mut());
+                }
+            }));
+    }
+
+    /// Request the user's attention by bouncing the dock icon or flashing the taskbar.
+    pub fn request_user_attention(&self, attention_type: AttentionType) {
+        self.platform.request_user_attention(attention_type);
+    }
+
+    /// Cancel a previous user attention request.
+    pub fn cancel_user_attention(&self) {
+        self.platform.cancel_user_attention();
+    }
+
+    /// Set the dock badge label (macOS) or taskbar overlay text.
+    pub fn set_dock_badge(&self, label: Option<&str>) {
+        self.platform.set_dock_badge(label);
+    }
+
+    /// Show a context menu at the given screen position with the specified menu items.
+    pub fn show_context_menu(
+        &self,
+        position: Point<Pixels>,
+        items: Vec<TrayMenuItem>,
+        mut callback: impl FnMut(SharedString, &mut App) + 'static,
+    ) {
+        let this = self.this.clone();
+        self.platform.show_context_menu(
+            position,
+            items,
+            Box::new(move |id| {
+                if let Some(app) = this.upgrade() {
+                    callback(id, &mut app.borrow_mut());
+                }
+            }),
+        );
+    }
+
+    /// Show a native dialog with the given options, returning the index of the clicked button.
+    pub fn show_dialog(&self, options: DialogOptions) -> oneshot::Receiver<usize> {
+        self.platform.show_dialog(options)
+    }
+
+    /// Get operating system information (name, version, architecture).
+    pub fn os_info(&self) -> OsInfo {
+        self.platform.os_info()
+    }
+
+    /// Check whether biometric authentication (Touch ID, Windows Hello) is available.
+    pub fn biometric_status(&self) -> BiometricStatus {
+        self.platform.biometric_status()
+    }
+
+    /// Authenticate the user via biometrics with the given reason string.
+    pub fn authenticate_biometric(&self, reason: &str, callback: impl FnOnce(bool) + 'static) {
+        self.platform
+            .authenticate_biometric(reason, Box::new(callback));
+    }
+
+    /// Install a panic hook that captures crash reports with backtraces and OS info.
+    pub fn set_crash_handler(
+        &self,
+        app_version: Option<String>,
+        handler: impl Fn(CrashReport) + Send + Sync + 'static,
+    ) {
+        let os_info = self.platform.os_info();
+        let handler = std::sync::Arc::new(handler);
+        std::panic::set_hook(Box::new(move |panic_info| {
+            let message = if let Some(msg) = panic_info.payload().downcast_ref::<&str>() {
+                msg.to_string()
+            } else if let Some(msg) = panic_info.payload().downcast_ref::<String>() {
+                msg.clone()
+            } else {
+                "Unknown panic".to_string()
+            };
+
+            let location = panic_info
+                .location()
+                .map(|loc| format!("{}:{}:{}", loc.file(), loc.line(), loc.column()))
+                .unwrap_or_default();
+
+            let full_message = if location.is_empty() {
+                message
+            } else {
+                format!("{message} at {location}")
+            };
+
+            let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+
+            let report = CrashReport {
+                message: full_message,
+                backtrace,
+                os_info: os_info.clone(),
+                app_version: app_version.clone(),
+            };
+
+            handler(report);
+        }));
     }
 
     /// Returns the list of currently active displays.
