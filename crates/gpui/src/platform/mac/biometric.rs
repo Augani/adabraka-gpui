@@ -26,10 +26,11 @@ pub fn biometric_status() -> BiometricStatus {
     }
 }
 
-pub fn authenticate_biometric(reason: &str, callback: Box<dyn FnOnce(bool)>) {
+pub fn authenticate_biometric(reason: &str, callback: Box<dyn FnOnce(bool) + Send>) {
     unsafe {
         let context: id = msg_send![class!(LAContext), new];
         let reason_ns = NSString::alloc(nil).init_str(reason);
+        let _: id = msg_send![reason_ns, autorelease];
 
         let callback = std::sync::Mutex::new(Some(callback));
 
@@ -46,5 +47,7 @@ pub fn authenticate_biometric(reason: &str, callback: Box<dyn FnOnce(bool)>) {
             localizedReason: reason_ns
             reply: &*block
         ];
+
+        let _: () = msg_send![context, release];
     }
 }

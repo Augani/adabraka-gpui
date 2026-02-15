@@ -29,7 +29,11 @@ pub fn set_dock_badge(label: Option<&str>) {
         let app: id = msg_send![class!(NSApplication), sharedApplication];
         let dock_tile: id = msg_send![app, dockTile];
         let ns_label: id = match label {
-            Some(text) => NSString::alloc(nil).init_str(text),
+            Some(text) => {
+                let s: id = NSString::alloc(nil).init_str(text);
+                let _: id = msg_send![s, autorelease];
+                s
+            }
             None => nil,
         };
         let _: () = msg_send![dock_tile, setBadgeLabel: ns_label];

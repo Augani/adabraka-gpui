@@ -35,7 +35,6 @@ mod biometric;
 mod dialog;
 mod dock;
 mod global_hotkey;
-mod media_keys;
 mod network;
 mod os_info;
 mod permissions;

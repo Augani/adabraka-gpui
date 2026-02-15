@@ -364,8 +364,10 @@ pub(crate) trait Platform: 'static {
     fn authenticate_biometric(
         &self,
         _reason: &str,
-        _callback: Box<dyn FnOnce(bool)>,
-    ) {}
+        callback: Box<dyn FnOnce(bool) + Send>,
+    ) {
+        callback(false);
+    }
 }
 
 /// A handle to a platform's display, e.g. a monitor or laptop screen.

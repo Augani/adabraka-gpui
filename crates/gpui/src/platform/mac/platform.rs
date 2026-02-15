@@ -1566,7 +1566,7 @@ impl Platform for MacPlatform {
         super::biometric::biometric_status()
     }
 
-    fn authenticate_biometric(&self, reason: &str, callback: Box<dyn FnOnce(bool)>) {
+    fn authenticate_biometric(&self, reason: &str, callback: Box<dyn FnOnce(bool) + Send>) {
         super::biometric::authenticate_biometric(reason, callback);
     }
 }

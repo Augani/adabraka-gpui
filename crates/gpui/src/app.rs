@@ -1223,7 +1223,11 @@ impl App {
     }
 
     /// Authenticate the user via biometrics with the given reason string.
-    pub fn authenticate_biometric(&self, reason: &str, callback: impl FnOnce(bool) + 'static) {
+    pub fn authenticate_biometric(
+        &self,
+        reason: &str,
+        callback: impl FnOnce(bool) + Send + 'static,
+    ) {
         self.platform
             .authenticate_biometric(reason, Box::new(callback));
     }

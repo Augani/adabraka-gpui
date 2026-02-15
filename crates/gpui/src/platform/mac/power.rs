@@ -22,7 +22,7 @@ pub fn start_power_save_blocker(kind: crate::PowerSaveBlockerKind) -> Option<u32
                 CFString::new("PreventUserIdleSystemSleep")
             }
             crate::PowerSaveBlockerKind::PreventDisplaySleep => {
-                CFString::new("NoIdleSleepAssertion")
+                CFString::new("PreventUserIdleDisplaySleep")
             }
         };
         let reason = CFString::new("Application requested power save blocker");
