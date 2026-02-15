@@ -1711,19 +1711,13 @@ impl PlatformWindow for X11Window {
     }
 
     fn show(&self) {
-        self.0
-            .xcb
-            .map_window(self.0.x_window)
-            .log_err();
+        self.0.xcb.map_window(self.0.x_window).log_err();
         xcb_flush(&self.0.xcb);
         self.0.state.borrow_mut().hidden = false;
     }
 
     fn hide(&self) {
-        self.0
-            .xcb
-            .unmap_window(self.0.x_window)
-            .log_err();
+        self.0.xcb.unmap_window(self.0.x_window).log_err();
         xcb_flush(&self.0.xcb);
         self.0.state.borrow_mut().hidden = true;
     }

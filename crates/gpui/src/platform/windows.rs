@@ -20,7 +20,6 @@ mod window;
 mod wrapper;
 
 pub(crate) use clipboard::*;
-pub(crate) use tray::*;
 pub(crate) use destination_list::*;
 pub(crate) use direct_write::*;
 pub(crate) use directx_atlas::*;
@@ -32,6 +31,7 @@ pub(crate) use events::*;
 pub(crate) use keyboard::*;
 pub(crate) use platform::*;
 pub(crate) use system_settings::*;
+pub(crate) use tray::*;
 pub(crate) use util::*;
 pub(crate) use vsync::*;
 pub(crate) use window::*;

@@ -4,9 +4,9 @@ use std::{
 };
 
 use gpui::{
-    AbsoluteLength, App, Application, Context, DefiniteLength, ElementId, Global, Hsla, Menu,
-    SharedString, TextStyle, TitlebarOptions, Window, WindowBounds, WindowOptions, bounds,
-    colors::DefaultColors, div, point, prelude::*, px, relative, rgb, size,
+    bounds, colors::DefaultColors, div, point, prelude::*, px, relative, rgb, size, AbsoluteLength,
+    App, Application, Context, DefiniteLength, ElementId, Global, Hsla, Menu, SharedString,
+    TextStyle, TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 use std::iter;
 
@@ -301,6 +301,7 @@ fn main() {
     Application::new().run(|cx: &mut App| {
         cx.set_menus(vec![Menu {
             name: "GPUI Typography".into(),
+            icon: None,
             items: vec![],
         }]);
 

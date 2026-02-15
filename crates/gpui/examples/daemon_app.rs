@@ -126,7 +126,7 @@ fn setup_tray(cx: &mut App) {
         },
     ]);
 
-    cx.on_tray_icon_event(|event| match event {
+    cx.on_tray_icon_event(|event, _cx| match event {
         TrayIconEvent::LeftClick => {
             eprintln!("Tray icon left-clicked");
         }

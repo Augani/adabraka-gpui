@@ -1,8 +1,8 @@
 use windows::Win32::{
     Foundation::{CloseHandle, MAX_PATH},
     System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
-        PROCESS_QUERY_LIMITED_INFORMATION,
+        OpenProcess, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
+        QueryFullProcessImageNameW,
     },
     UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId},
 };

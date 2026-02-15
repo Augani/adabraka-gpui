@@ -1014,23 +1014,38 @@ impl App {
         self.platform.set_tray_tooltip(tooltip);
     }
 
+    /// Enable or disable tray panel mode.
+    /// When enabled, clicking the tray icon fires `TrayIconEvent::LeftClick` instead of showing the NSMenu.
+    pub fn set_tray_panel_mode(&self, enabled: bool) {
+        self.platform.set_tray_panel_mode(enabled);
+    }
+
+    /// Get the screen bounds of the tray icon, useful for positioning a panel below it.
+    pub fn tray_icon_bounds(&self) -> Option<Bounds<Pixels>> {
+        self.platform.get_tray_icon_bounds()
+    }
+
     /// Register a callback for system tray icon events.
-    pub fn on_tray_icon_event(&self, callback: impl FnMut(TrayIconEvent) + 'static) {
-        self.platform.on_tray_icon_event(Box::new(callback));
+    pub fn on_tray_icon_event(
+        &self,
+        mut callback: impl FnMut(TrayIconEvent, &mut App) + 'static,
+    ) {
+        let this = self.this.clone();
+        self.platform.on_tray_icon_event(Box::new(move |event| {
+            if let Some(app) = this.upgrade() {
+                callback(event, &mut app.borrow_mut());
+            }
+        }));
     }
 
     /// Register a callback for when a tray menu item is clicked.
-    pub fn on_tray_menu_action(
-        &self,
-        mut callback: impl FnMut(SharedString, &mut App) + 'static,
-    ) {
+    pub fn on_tray_menu_action(&self, mut callback: impl FnMut(SharedString, &mut App) + 'static) {
         let this = self.this.clone();
-        self.platform
-            .on_tray_menu_action(Box::new(move |id| {
-                if let Some(app) = this.upgrade() {
-                    callback(id, &mut app.borrow_mut());
-                }
-            }));
+        self.platform.on_tray_menu_action(Box::new(move |id| {
+            if let Some(app) = this.upgrade() {
+                callback(id, &mut app.borrow_mut());
+            }
+        }));
     }
 
     /// Register a global hotkey with the given ID and keystroke.
@@ -1070,7 +1085,8 @@ impl App {
 
     /// Request microphone permission from the user.
     pub fn request_microphone_permission(&self, callback: impl FnOnce(bool) + 'static) {
-        self.platform.request_microphone_permission(Box::new(callback));
+        self.platform
+            .request_microphone_permission(Box::new(callback));
     }
 
     /// Set whether the application should auto-launch at login.

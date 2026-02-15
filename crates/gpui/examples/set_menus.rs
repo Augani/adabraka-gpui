@@ -1,6 +1,6 @@
 use gpui::{
-    App, Application, Context, Menu, MenuItem, SystemMenuType, Window, WindowOptions, actions, div,
-    prelude::*, rgb,
+    actions, div, prelude::*, rgb, App, Application, Context, Menu, MenuItem, SystemMenuType,
+    Window, WindowOptions,
 };
 
 struct SetMenus;
@@ -28,6 +28,7 @@ fn main() {
         // Add menu items
         cx.set_menus(vec![Menu {
             name: "set_menus".into(),
+            icon: None,
             items: vec![
                 MenuItem::os_submenu("Services", SystemMenuType::Services),
                 MenuItem::separator(),

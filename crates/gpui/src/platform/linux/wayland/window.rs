@@ -1134,7 +1134,10 @@ impl PlatformWindow for WaylandWindow {
     fn set_mouse_passthrough(&self, passthrough: bool) {
         let state = self.borrow();
         if passthrough {
-            let region = state.globals.compositor.create_region(&state.globals.qh, ());
+            let region = state
+                .globals
+                .compositor
+                .create_region(&state.globals.qh, ());
             state.surface.set_input_region(Some(&region));
             region.destroy();
         } else {

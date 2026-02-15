@@ -1,14 +1,18 @@
 use crate::platform::TrayMenuItem;
+use crate::{point, px, size, Bounds, Pixels};
 use cocoa::{
-    appkit::NSApplication,
+    appkit::NSScreen,
     base::{id, nil, NO, YES},
     foundation::{NSData, NSSize, NSString},
 };
 use objc::{class, msg_send, rc::StrongPtr, sel, sel_impl};
+use std::cell::Cell;
 use std::ffi::c_void;
 
 pub(crate) struct MacTray {
     status_item: StrongPtr,
+    panel_mode: Cell<bool>,
+    stored_menu: Cell<id>,
 }
 
 impl MacTray {
@@ -26,7 +30,11 @@ impl MacTray {
                 let _: () = msg_send![button, setTitle: default_title];
             }
 
-            Self { status_item }
+            Self {
+                status_item,
+                panel_mode: Cell::new(false),
+                stored_menu: Cell::new(nil),
+            }
         }
     }
 
@@ -84,10 +92,79 @@ impl MacTray {
 
     pub fn set_menu(&self, items: Vec<TrayMenuItem>) {
         unsafe {
+            let old_menu = self.stored_menu.get();
+            if old_menu != nil {
+                let _: () = msg_send![old_menu, release];
+            }
+
             let menu: id = msg_send![class!(NSMenu), new];
             let _: () = msg_send![menu, setAutoenablesItems: NO];
             build_menu(menu, &items);
-            let _: () = msg_send![*self.status_item, setMenu: menu];
+
+            self.stored_menu.set(menu);
+
+            if !self.panel_mode.get() {
+                let _: () = msg_send![*self.status_item, setMenu: menu];
+            }
+        }
+    }
+
+    pub fn set_panel_mode(&self, enabled: bool) {
+        self.panel_mode.set(enabled);
+        unsafe {
+            if enabled {
+                let _: () = msg_send![*self.status_item, setMenu: nil];
+
+                let button: id = msg_send![*self.status_item, button];
+                if button != nil {
+                    let delegate = get_app_delegate();
+                    if delegate != nil {
+                        let _: () = msg_send![button, setTarget: delegate];
+                        let _: () = msg_send![button, setAction: sel!(handleTrayPanelClick:)];
+                    }
+                }
+            } else {
+                let button: id = msg_send![*self.status_item, button];
+                if button != nil {
+                    let null_sel: *const std::ffi::c_void = std::ptr::null();
+                    let _: () = msg_send![button, setTarget: nil];
+                    let _: () = msg_send![button, setAction: null_sel];
+                }
+
+                let stored = self.stored_menu.get();
+                if stored != nil {
+                    let _: () = msg_send![*self.status_item, setMenu: stored];
+                }
+            }
+        }
+    }
+
+    pub fn get_icon_bounds(&self) -> Option<Bounds<Pixels>> {
+        unsafe {
+            let button: id = msg_send![*self.status_item, button];
+            if button == nil {
+                return None;
+            }
+
+            let button_window: id = msg_send![button, window];
+            if button_window == nil {
+                return None;
+            }
+
+            let frame: cocoa::foundation::NSRect = msg_send![button_window, frame];
+
+            let main_screen: id = NSScreen::mainScreen(nil);
+            if main_screen == nil {
+                return None;
+            }
+            let screen_frame = NSScreen::frame(main_screen);
+
+            let flipped_y = screen_frame.size.height - frame.origin.y - frame.size.height;
+
+            Some(Bounds::new(
+                point(px(frame.origin.x as f32), px(flipped_y as f32)),
+                size(px(frame.size.width as f32), px(frame.size.height as f32)),
+            ))
         }
     }
 }
@@ -95,6 +172,10 @@ impl MacTray {
 impl Drop for MacTray {
     fn drop(&mut self) {
         unsafe {
+            let stored = self.stored_menu.get();
+            if stored != nil {
+                let _: () = msg_send![stored, release];
+            }
             let status_bar: id = msg_send![class!(NSStatusBar), systemStatusBar];
             let _: () = msg_send![status_bar, removeStatusItem: *self.status_item];
         }
@@ -107,13 +188,15 @@ unsafe fn get_app_delegate() -> id {
 }
 
 unsafe fn configure_actionable_item(menu_item: id, item_id: &str) {
-    let delegate = get_app_delegate();
-    if delegate != nil {
-        let _: () = msg_send![menu_item, setTarget: delegate];
-        let _: () = msg_send![menu_item, setAction: sel!(handleTrayMenuItem:)];
-        let represented = NSString::alloc(nil).init_str(item_id);
-        let _: () = msg_send![menu_item, setRepresentedObject: represented];
-        let _: () = msg_send![menu_item, setEnabled: YES];
+    unsafe {
+        let delegate = get_app_delegate();
+        if delegate != nil {
+            let _: () = msg_send![menu_item, setTarget: delegate];
+            let _: () = msg_send![menu_item, setAction: sel!(handleTrayMenuItem:)];
+            let represented = NSString::alloc(nil).init_str(item_id);
+            let _: () = msg_send![menu_item, setRepresentedObject: represented];
+            let _: () = msg_send![menu_item, setEnabled: YES];
+        }
     }
 }
 

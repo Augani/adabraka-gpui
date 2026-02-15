@@ -2,17 +2,17 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use windows::{
-    core::PCWSTR,
     Win32::{
         Foundation::*,
         UI::{
             Shell::{
-                Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD,
-                NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
+                NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIM_ADD, NIM_DELETE,
+                NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW,
             },
             WindowsAndMessaging::*,
         },
     },
+    core::PCWSTR,
 };
 
 use crate::{SharedString, TrayMenuItem, WM_GPUI_TRAY_ICON};

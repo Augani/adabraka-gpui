@@ -4,8 +4,8 @@
 #[cfg(feature = "perf-enabled")]
 use perf::*;
 use proc_macro::TokenStream;
-use quote::{quote, ToTokens};
-use syn::{parse_macro_input, parse_quote, ItemFn, LitStr};
+use quote::{ToTokens, quote};
+use syn::{ItemFn, LitStr, parse_macro_input, parse_quote};
 
 /// A macro used in tests for cross-platform path string literals in tests. On Windows it replaces
 /// `/` with `\\` and adds `C:` to the beginning of absolute paths. On other platforms, the path is

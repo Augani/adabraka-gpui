@@ -280,11 +280,17 @@ pub(crate) trait Platform: 'static {
     fn set_tray_icon(&self, _icon: Option<&[u8]>) {}
     fn set_tray_menu(&self, _menu: Vec<TrayMenuItem>) {}
     fn set_tray_tooltip(&self, _tooltip: &str) {}
+    fn set_tray_panel_mode(&self, _enabled: bool) {}
+    fn get_tray_icon_bounds(&self) -> Option<Bounds<Pixels>> {
+        None
+    }
     fn on_tray_icon_event(&self, _callback: Box<dyn FnMut(TrayIconEvent)>) {}
     fn on_tray_menu_action(&self, _callback: Box<dyn FnMut(SharedString)>) {}
 
     fn register_global_hotkey(&self, _id: u32, _keystroke: &Keystroke) -> Result<()> {
-        Err(anyhow::anyhow!("Global hotkeys not supported on this platform"))
+        Err(anyhow::anyhow!(
+            "Global hotkeys not supported on this platform"
+        ))
     }
     fn unregister_global_hotkey(&self, _id: u32) {}
     fn on_global_hotkey(&self, _callback: Box<dyn FnMut(u32)>) {}
@@ -306,14 +312,18 @@ pub(crate) trait Platform: 'static {
     }
 
     fn set_auto_launch(&self, _app_id: &str, _enabled: bool) -> Result<()> {
-        Err(anyhow::anyhow!("Auto-launch not supported on this platform"))
+        Err(anyhow::anyhow!(
+            "Auto-launch not supported on this platform"
+        ))
     }
     fn is_auto_launch_enabled(&self, _app_id: &str) -> bool {
         false
     }
 
     fn show_notification(&self, _title: &str, _body: &str) -> Result<()> {
-        Err(anyhow::anyhow!("Notifications not supported on this platform"))
+        Err(anyhow::anyhow!(
+            "Notifications not supported on this platform"
+        ))
     }
 
     fn set_keep_alive_without_windows(&self, _keep_alive: bool) {}
@@ -595,7 +605,9 @@ pub(crate) trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
 
     fn show(&self) {}
     fn hide(&self) {}
-    fn is_visible(&self) -> bool { true }
+    fn is_visible(&self) -> bool {
+        true
+    }
     fn set_mouse_passthrough(&self, _passthrough: bool) {}
 
     #[cfg(any(test, feature = "test-support"))]

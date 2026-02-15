@@ -155,10 +155,10 @@ fn platform_send_activate(app_id: &str) -> Result<()> {
 #[cfg(target_os = "windows")]
 impl SingleInstance {
     fn platform_acquire(app_id: &str) -> std::result::Result<Self, AlreadyRunning> {
-        use windows::core::HSTRING;
-        use windows::Win32::Foundation::GetLastError;
         use windows::Win32::Foundation::ERROR_ALREADY_EXISTS;
+        use windows::Win32::Foundation::GetLastError;
         use windows::Win32::System::Threading::CreateMutexW;
+        use windows::core::HSTRING;
 
         let name = HSTRING::from(format!("Global\\{}", app_id));
         unsafe {

@@ -40,7 +40,27 @@ pub(crate) fn keystroke_matches_event(keystroke: &Keystroke, event: id) -> bool 
         let event_key = chars.to_lowercase();
         let target_key = keystroke.key.to_lowercase();
 
-        event_key == target_key
+        event_key == target_key || normalize_key_name(&event_key) == target_key
+    }
+}
+
+fn normalize_key_name(char_key: &str) -> &str {
+    match char_key {
+        " " => "space",
+        "\t" => "tab",
+        "\r" | "\n" => "enter",
+        "\u{1b}" => "escape",
+        "\u{7f}" => "backspace",
+        "\u{f700}" => "up",
+        "\u{f701}" => "down",
+        "\u{f702}" => "left",
+        "\u{f703}" => "right",
+        "\u{f728}" => "delete",
+        "\u{f729}" => "home",
+        "\u{f72b}" => "end",
+        "\u{f72c}" => "pageup",
+        "\u{f72d}" => "pagedown",
+        other => other,
     }
 }
 

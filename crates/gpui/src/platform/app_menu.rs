@@ -6,6 +6,9 @@ pub struct Menu {
     /// The name of the menu
     pub name: SharedString,
 
+    /// Optional icon data (e.g. PNG/SVG bytes) to display alongside the menu name
+    pub icon: Option<Vec<u8>>,
+
     /// The items in the menu
     pub items: Vec<MenuItem>,
 }
@@ -15,6 +18,7 @@ impl Menu {
     pub fn owned(self) -> OwnedMenu {
         OwnedMenu {
             name: self.name.to_string().into(),
+            icon: self.icon,
             items: self.items.into_iter().map(|item| item.owned()).collect(),
         }
     }
@@ -150,6 +154,9 @@ pub struct OwnedOsMenu {
 pub struct OwnedMenu {
     /// The name of the menu
     pub name: SharedString,
+
+    /// Optional icon data (e.g. PNG/SVG bytes) to display alongside the menu name
+    pub icon: Option<Vec<u8>>,
 
     /// The items in the menu
     pub items: Vec<OwnedMenuItem>,

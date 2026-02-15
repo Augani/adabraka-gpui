@@ -1,8 +1,8 @@
 use super::metal_atlas::MetalAtlas;
 use crate::{
-    point, size, AtlasTextureId, Background, Bounds, ContentMask, DevicePixels, MonochromeSprite,
-    PaintSurface, Path, Point, PolychromeSprite, PrimitiveBatch, Quad, ScaledPixels, Scene, Shadow,
-    Size, Surface, Underline,
+    AtlasTextureId, Background, Bounds, ContentMask, DevicePixels, MonochromeSprite, PaintSurface,
+    Path, Point, PolychromeSprite, PrimitiveBatch, Quad, ScaledPixels, Scene, Shadow, Size,
+    Surface, Underline, point, size,
 };
 use anyhow::Result;
 use block::ConcreteBlock;

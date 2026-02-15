@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use crate::{
-    div, hsla, px, AnyElement, Context, IntoElement, ParentElement, Render, SharedString, Styled,
-    Timer, WeakEntity, Window, WindowAppearance,
+    AnyElement, Context, IntoElement, ParentElement, Render, SharedString, Styled, Timer,
+    WeakEntity, Window, WindowAppearance, div, hsla, px,
 };
 
 /// Position where toasts appear on screen.
@@ -116,7 +116,10 @@ impl ToastStack {
     }
 
     fn is_dark_appearance(window: &Window) -> bool {
-        matches!(window.appearance(), WindowAppearance::Dark | WindowAppearance::VibrantDark)
+        matches!(
+            window.appearance(),
+            WindowAppearance::Dark | WindowAppearance::VibrantDark
+        )
     }
 }
 
@@ -125,32 +128,17 @@ impl Render for ToastStack {
         let is_dark = Self::is_dark_appearance(window);
         let position = self.position;
 
-        let mut container = div()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .p_4()
-            .max_w(px(360.0));
+        let mut container = div().flex().flex_col().gap_2().p_4().max_w(px(360.0));
 
         match position {
             ToastPosition::TopRight => {
-                container = container
-                    .absolute()
-                    .top_0()
-                    .right_0();
+                container = container.absolute().top_0().right_0();
             }
             ToastPosition::BottomRight => {
-                container = container
-                    .absolute()
-                    .bottom_0()
-                    .right_0();
+                container = container.absolute().bottom_0().right_0();
             }
             ToastPosition::TopCenter => {
-                container = container
-                    .absolute()
-                    .top_0()
-                    .left_auto()
-                    .right_auto();
+                container = container.absolute().top_0().left_auto().right_auto();
             }
         }
 
@@ -203,11 +191,7 @@ fn render_toast_item(toast: &Toast, is_dark: bool) -> AnyElement {
         .min_w(px(200.0))
         .text_color(text_color)
         .text_sm()
-        .child(
-            div()
-                .font_weight(crate::FontWeight::SEMIBOLD)
-                .child(title),
-        );
+        .child(div().font_weight(crate::FontWeight::SEMIBOLD).child(title));
 
     if let Some(body_text) = body {
         toast_div = toast_div.child(

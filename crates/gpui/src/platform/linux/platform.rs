@@ -26,8 +26,8 @@ use crate::{
     Action, AnyWindowHandle, BackgroundExecutor, ClipboardItem, CursorStyle, DisplayId,
     FocusedWindowInfo, ForegroundExecutor, Keymap, Keystroke, LinuxDispatcher, Menu, MenuItem,
     OwnedMenu, PathPromptOptions, Pixels, Platform, PlatformDisplay, PlatformKeyboardLayout,
-    PlatformKeyboardMapper, PlatformTextSystem, PlatformWindow, Point, Result, Task,
-    SharedString, TrayIconEvent, TrayMenuItem, WindowAppearance, WindowParams, px,
+    PlatformKeyboardMapper, PlatformTextSystem, PlatformWindow, Point, Result, SharedString, Task,
+    TrayIconEvent, TrayMenuItem, WindowAppearance, WindowParams, px,
 };
 
 #[cfg(any(feature = "wayland", feature = "x11"))]
@@ -83,7 +83,9 @@ pub trait LinuxClient {
     fn set_tray_menu(&self, _menu: Vec<TrayMenuItem>) {}
     fn set_tray_tooltip(&self, _tooltip: &str) {}
     fn register_global_hotkey(&self, _id: u32, _keystroke: &Keystroke) -> Result<()> {
-        Err(anyhow::anyhow!("Global hotkeys not supported on this platform"))
+        Err(anyhow::anyhow!(
+            "Global hotkeys not supported on this platform"
+        ))
     }
     fn unregister_global_hotkey(&self, _id: u32) {}
 

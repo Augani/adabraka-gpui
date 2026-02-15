@@ -404,7 +404,8 @@ impl WindowTextSystem {
             });
         }
 
-        let layout = self.layout_line_with_spacing(&text, font_size, runs, force_width, letter_spacing);
+        let layout =
+            self.layout_line_with_spacing(&text, font_size, runs, force_width, letter_spacing);
 
         ShapedLine {
             layout,

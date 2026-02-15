@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use gpui::{
-    App, AppContext, Application, AssetSource, Bounds, Context, ImageSource, KeyBinding, Menu,
-    MenuItem, Point, SharedString, SharedUri, TitlebarOptions, Window, WindowBounds, WindowOptions,
-    actions, div, img, prelude::*, px, rgb, size,
+    actions, div, img, prelude::*, px, rgb, size, App, AppContext, Application, AssetSource,
+    Bounds, Context, ImageSource, KeyBinding, Menu, MenuItem, Point, SharedString, SharedUri,
+    TitlebarOptions, Window, WindowBounds, WindowOptions,
 };
 use reqwest_client::ReqwestClient;
 
@@ -163,6 +163,7 @@ fn main() {
             cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
             cx.set_menus(vec![Menu {
                 name: "Image".into(),
+                icon: None,
                 items: vec![MenuItem::action("Quit", Quit)],
             }]);
 

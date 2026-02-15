@@ -258,6 +258,7 @@ fn main() {
         cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
         cx.set_menus(vec![Menu {
             name: "Image Gallery".into(),
+            icon: None,
             items: vec![MenuItem::action("Quit", Quit)],
         }]);
 
