@@ -1762,7 +1762,7 @@ extern "C" fn handle_tray_menu_item(this: &mut Object, _: Sel, item: id) {
         let id_str = std::str::from_utf8(slice::from_raw_parts(bytes, len)).unwrap_or("");
         let shared_id: SharedString = id_str.to_string().into();
 
-        let platform_ptr = &*platform as *const MacPlatform;
+        let platform_ptr = platform as *const MacPlatform;
 
         use super::dispatcher::{dispatch_get_main_queue, dispatch_sys::dispatch_async_f};
 
@@ -1794,7 +1794,7 @@ extern "C" fn handle_tray_menu_item(this: &mut Object, _: Sel, item: id) {
 extern "C" fn handle_tray_panel_click(this: &mut Object, _: Sel, _sender: id) {
     unsafe {
         let platform = get_mac_platform(this);
-        let platform_ptr = &*platform as *const MacPlatform;
+        let platform_ptr = platform as *const MacPlatform;
 
         use super::dispatcher::{dispatch_get_main_queue, dispatch_sys::dispatch_async_f};
 
@@ -1810,7 +1810,7 @@ extern "C" fn handle_tray_panel_click(this: &mut Object, _: Sel, _sender: id) {
 
         dispatch_async_f(
             dispatch_get_main_queue(),
-            platform_ptr as *const MacPlatform as *mut c_void,
+            platform_ptr as *mut c_void,
             Some(invoke),
         );
     }

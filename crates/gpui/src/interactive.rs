@@ -1,6 +1,6 @@
 use crate::{
-    Bounds, Capslock, Context, Empty, IntoElement, Keystroke, Modifiers, Pixels, Point, Render,
-    Window, point, seal::Sealed,
+    point, seal::Sealed, Bounds, Capslock, Context, Empty, IntoElement, Keystroke, Modifiers,
+    Pixels, Point, Render, Window,
 };
 use smallvec::SmallVec;
 use std::{any::Any, fmt::Debug, ops::Deref, path::PathBuf};
@@ -280,9 +280,10 @@ pub enum KeyboardButton {
 }
 
 /// An enum representing the mouse button that was pressed.
-#[derive(Hash, PartialEq, Eq, Copy, Clone, Debug)]
+#[derive(Hash, PartialEq, Eq, Copy, Clone, Debug, Default)]
 pub enum MouseButton {
     /// The left mouse button.
+    #[default]
     Left,
 
     /// The right mouse button.
@@ -308,26 +309,15 @@ impl MouseButton {
     }
 }
 
-impl Default for MouseButton {
-    fn default() -> Self {
-        Self::Left
-    }
-}
-
 /// A navigation direction, such as back or forward.
-#[derive(Hash, PartialEq, Eq, Copy, Clone, Debug)]
+#[derive(Hash, PartialEq, Eq, Copy, Clone, Debug, Default)]
 pub enum NavigationDirection {
     /// The back button.
+    #[default]
     Back,
 
     /// The forward button.
     Forward,
-}
-
-impl Default for NavigationDirection {
-    fn default() -> Self {
-        Self::Back
-    }
 }
 
 /// A mouse move event from the platform
@@ -599,8 +589,8 @@ impl PlatformInput {
 mod test {
 
     use crate::{
-        self as gpui, AppContext as _, Context, FocusHandle, InteractiveElement, IntoElement,
-        KeyBinding, Keystroke, ParentElement, Render, TestAppContext, Window, div,
+        self as gpui, div, AppContext as _, Context, FocusHandle, InteractiveElement, IntoElement,
+        KeyBinding, Keystroke, ParentElement, Render, TestAppContext, Window,
     };
 
     struct TestView {

@@ -6,20 +6,15 @@ use crate::{
 };
 
 /// Position where toasts appear on screen.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ToastPosition {
     /// Top-right corner of the window.
+    #[default]
     TopRight,
     /// Bottom-right corner of the window.
     BottomRight,
     /// Top-center of the window.
     TopCenter,
-}
-
-impl Default for ToastPosition {
-    fn default() -> Self {
-        Self::TopRight
-    }
 }
 
 /// Configuration for a single toast notification.

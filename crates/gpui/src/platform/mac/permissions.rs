@@ -26,10 +26,7 @@ pub fn request_accessibility_permission() {
         let key = CFString::new("AXTrustedCheckOptionPrompt");
         let value = CFBoolean::true_value();
         let mut options = CFMutableDictionary::new();
-        options.set(
-            key.as_CFTypeRef() as *const c_void,
-            value.as_CFTypeRef() as *const c_void,
-        );
+        options.set(key.as_CFTypeRef(), value.as_CFTypeRef());
         AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef() as *const c_void);
     }
 }

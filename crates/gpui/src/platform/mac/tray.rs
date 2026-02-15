@@ -68,6 +68,7 @@ impl MacTray {
         }
     }
 
+    #[allow(dead_code)]
     pub fn set_title(&self, title: &str) {
         unsafe {
             let button: id = msg_send![*self.status_item, button];

@@ -1,8 +1,8 @@
-use anyhow::{Context as _, bail};
-use schemars::{JsonSchema, json_schema};
+use anyhow::{bail, Context as _};
+use schemars::{json_schema, JsonSchema};
 use serde::{
-    Deserialize, Deserializer, Serialize, Serializer,
     de::{self, Visitor},
+    Deserialize, Deserializer, Serialize, Serializer,
 };
 use std::borrow::Cow;
 use std::{
@@ -822,9 +822,7 @@ pub fn linear_gradient(
 pub fn multi_stop_linear_gradient(angle: f32, stops: &[LinearColorStop]) -> Background {
     let mut colors = [LinearColorStop::default(); 4];
     let count = stops.len().min(4);
-    for i in 0..count {
-        colors[i] = stops[i];
-    }
+    colors[..count].copy_from_slice(&stops[..count]);
     Background {
         tag: BackgroundTag::LinearGradient,
         gradient_angle_or_pattern_height: angle,
@@ -847,9 +845,7 @@ pub fn radial_gradient(
 ) -> Background {
     let mut colors = [LinearColorStop::default(); 4];
     let count = stops.len().min(4);
-    for i in 0..count {
-        colors[i] = stops[i];
-    }
+    colors[..count].copy_from_slice(&stops[..count]);
     Background {
         tag: BackgroundTag::RadialGradient,
         colors,
@@ -873,9 +869,7 @@ pub fn conic_gradient(
 ) -> Background {
     let mut colors = [LinearColorStop::default(); 4];
     let count = stops.len().min(4);
-    for i in 0..count {
-        colors[i] = stops[i];
-    }
+    colors[..count].copy_from_slice(&stops[..count]);
     Background {
         tag: BackgroundTag::ConicGradient,
         gradient_angle_or_pattern_height: angle_offset,
