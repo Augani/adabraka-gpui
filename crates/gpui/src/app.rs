@@ -42,9 +42,9 @@ use crate::{
     PathPromptOptions, PermissionStatus, Pixels, Platform, PlatformDisplay,
     PlatformKeyboardLayout, PlatformKeyboardMapper, Point, PowerSaveBlockerKind, PromptBuilder,
     PromptButton, PromptHandle, PromptLevel, Render, RenderImage, RenderablePromptHandle,
-    Reservation, ScreenCaptureSource, SharedString, SubscriberSet, Subscription, SvgRenderer,
+    Reservation, ScreenCaptureSource, SharedString, Size, SubscriberSet, Subscription, SvgRenderer,
     SystemPowerEvent, Task, TextSystem, TrayIconEvent, TrayMenuItem, Window, WindowAppearance,
-    WindowHandle, WindowId, WindowInvalidator,
+    WindowHandle, WindowId, WindowInvalidator, WindowPosition,
     colors::{Colors, GlobalColors},
     current_platform, hash, init_app_menus,
 };
@@ -1277,6 +1277,22 @@ impl App {
     /// Returns the primary display that will be used for new windows.
     pub fn primary_display(&self) -> Option<Rc<dyn PlatformDisplay>> {
         self.platform.primary_display()
+    }
+
+    /// Compute window bounds from a desired size and a semantic position.
+    pub fn compute_window_bounds(
+        &self,
+        size: Size<Pixels>,
+        position: &WindowPosition,
+    ) -> Bounds<Pixels> {
+        let displays = self.platform.displays();
+        let primary = self.platform.primary_display();
+        crate::platform::window_positioner::compute_window_bounds(
+            size,
+            position,
+            &displays,
+            primary.as_ref(),
+        )
     }
 
     /// Returns whether `screen_capture_sources` may work.

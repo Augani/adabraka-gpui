@@ -3,6 +3,8 @@ mod keyboard;
 mod keystroke;
 /// Cross-platform single instance enforcement using Unix domain sockets and Windows named mutexes.
 pub mod single_instance;
+/// Pure Rust utility for computing window bounds from a semantic [`WindowPosition`].
+pub mod window_positioner;
 
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 mod linux;
