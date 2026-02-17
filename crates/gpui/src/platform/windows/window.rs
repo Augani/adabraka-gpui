@@ -897,7 +897,7 @@ impl PlatformWindow for WindowsWindow {
 
     fn set_progress_bar(&self, state: crate::ProgressBarState) {
         unsafe {
-            let taskbar: Result<ITaskbarList3> =
+            let taskbar: std::result::Result<ITaskbarList3, windows::core::Error> =
                 CoCreateInstance(&TaskbarList, None, CLSCTX_INPROC_SERVER);
             let Ok(taskbar) = taskbar else { return };
             if taskbar.HrInit().is_err() {

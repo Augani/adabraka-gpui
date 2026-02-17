@@ -908,7 +908,7 @@ impl<T> PipelineState<T> {
         data: &[T],
     ) -> Result<()> {
         if self.buffer_size < data.len() {
-            let new_buffer_size = data.len().next_power_of_two();
+            let new_buffer_size = std::cmp::max(data.len() * 3 / 2, self.buffer_size);
             log::info!(
                 "Updating {} buffer size from {} to {}",
                 self.label,

@@ -147,7 +147,7 @@ impl WindowsTray {
                     TPM_LEFTALIGN | TPM_BOTTOMALIGN,
                     point.x,
                     point.y,
-                    0,
+                    None,
                     hwnd,
                     None,
                 );
@@ -238,7 +238,7 @@ impl Drop for WindowsTray {
 
 fn create_hicon_from_bytes(data: &[u8]) -> Option<HICON> {
     unsafe {
-        let offset = LookupIconIdFromDirectoryEx(data, TRUE, 0, 0, LR_DEFAULTCOLOR);
+        let offset = LookupIconIdFromDirectoryEx(data.as_ptr(), true, 0, 0, LR_DEFAULTCOLOR);
         if offset <= 0 {
             return None;
         }
@@ -246,7 +246,7 @@ fn create_hicon_from_bytes(data: &[u8]) -> Option<HICON> {
             return None;
         }
         let icon_data = &data[offset as usize..];
-        let hicon = CreateIconFromResourceEx(icon_data, TRUE, 0x00030000, 0, 0, LR_DEFAULTCOLOR);
+        let hicon = CreateIconFromResourceEx(icon_data, true, 0x00030000, 0, 0, LR_DEFAULTCOLOR);
         hicon.ok()
     }
 }

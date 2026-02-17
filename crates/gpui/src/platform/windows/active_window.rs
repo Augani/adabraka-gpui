@@ -44,7 +44,7 @@ fn get_process_name(pid: u32) -> Option<String> {
         let mut buf = [0u16; MAX_PATH as usize];
         let mut size = buf.len() as u32;
         let result =
-            QueryFullProcessImageNameW(handle, PROCESS_NAME_FORMAT(0), &mut buf, &mut size);
+            QueryFullProcessImageNameW(handle, PROCESS_NAME_FORMAT(0), windows::core::PWSTR(buf.as_mut_ptr()), &mut size);
         let _ = CloseHandle(handle);
         result.ok()?;
 

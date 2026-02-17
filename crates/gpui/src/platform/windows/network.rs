@@ -1,6 +1,7 @@
 use windows::Win32::{
     Foundation::*, Networking::NetworkListManager::*, System::Com::*, UI::WindowsAndMessaging::*,
 };
+use windows_core::Interface;
 
 use crate::NetworkStatus;
 
@@ -13,8 +14,8 @@ pub(crate) fn query_network_status() -> NetworkStatus {
         match manager {
             Ok(manager) => match manager.GetConnectivity() {
                 Ok(connectivity) => {
-                    let has_ipv4 = connectivity.contains(NLM_CONNECTIVITY_IPV4_INTERNET);
-                    let has_ipv6 = connectivity.contains(NLM_CONNECTIVITY_IPV6_INTERNET);
+                    let has_ipv4 = (connectivity.0 & NLM_CONNECTIVITY_IPV4_INTERNET.0) != 0;
+                    let has_ipv6 = (connectivity.0 & NLM_CONNECTIVITY_IPV6_INTERNET.0) != 0;
                     if has_ipv4 || has_ipv6 {
                         NetworkStatus::Online
                     } else {
@@ -29,9 +30,11 @@ pub(crate) fn query_network_status() -> NetworkStatus {
 }
 
 pub(crate) fn start_network_monitoring(platform_hwnd: HWND, _validation_number: usize) {
+    let hwnd_raw = platform_hwnd.0 as usize;
     std::thread::Builder::new()
         .name("NetworkMonitor".to_owned())
         .spawn(move || {
+            let platform_hwnd = HWND(hwnd_raw as *mut _);
             unsafe {
                 let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             }

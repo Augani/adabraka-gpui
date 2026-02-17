@@ -60,6 +60,7 @@ struct DirectWriteState {
     fonts: Vec<FontInfo>,
     font_selections: HashMap<Font, FontId>,
     font_id_by_identifier: HashMap<FontIdentifier, FontId>,
+    text_format_cache: HashMap<(usize, u32), IDWriteTextFormat1>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -208,6 +209,7 @@ impl DirectWriteTextSystem {
             fonts: Vec::new(),
             font_selections: HashMap::default(),
             font_id_by_identifier: HashMap::default(),
+            text_format_cache: HashMap::default(),
         })))
     }
 
@@ -569,22 +571,31 @@ impl DirectWriteState {
                 } else {
                     &self.custom_font_collection
                 };
-                let format: IDWriteTextFormat1 = self
-                    .components
-                    .factory
-                    .CreateTextFormat(
-                        &HSTRING::from(&font_info.font_family),
-                        collection,
-                        font_info.font_face.GetWeight(),
-                        font_info.font_face.GetStyle(),
-                        DWRITE_FONT_STRETCH_NORMAL,
-                        font_size.0,
-                        &HSTRING::from(&self.components.locale),
-                    )?
-                    .cast()?;
-                if let Some(ref fallbacks) = font_info.fallbacks {
-                    format.SetFontFallback(fallbacks)?;
-                }
+                // Cache text format by (font_id, font_size_bits) to avoid
+                // re-creating IDWriteTextFormat1 on every line.
+                let cache_key = (first_run.font_id.0, font_size.0.to_bits());
+                let format: IDWriteTextFormat1 = if let Some(cached) = self.text_format_cache.get(&cache_key) {
+                    cached.clone()
+                } else {
+                    let fmt: IDWriteTextFormat1 = self
+                        .components
+                        .factory
+                        .CreateTextFormat(
+                            &HSTRING::from(&font_info.font_family),
+                            collection,
+                            font_info.font_face.GetWeight(),
+                            font_info.font_face.GetStyle(),
+                            DWRITE_FONT_STRETCH_NORMAL,
+                            font_size.0,
+                            &HSTRING::from(&self.components.locale),
+                        )?
+                        .cast()?;
+                    if let Some(ref fallbacks) = font_info.fallbacks {
+                        fmt.SetFontFallback(fallbacks)?;
+                    }
+                    self.text_format_cache.insert(cache_key, fmt.clone());
+                    fmt
+                };
 
                 let layout = self.components.factory.CreateTextLayout(
                     &text_wide,

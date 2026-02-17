@@ -303,11 +303,11 @@ float quad_sdf(float2 pt, Bounds bounds, Corners corner_radii) {
     return quad_sdf_impl(corner_center_to_point, corner_radius);
 }
 
-float squircle_sdf(float2 point, Bounds bounds, Corners corner_radii) {
+float squircle_sdf(float2 pt, Bounds bounds, Corners corner_radii) {
     float2 half_size = bounds.size / 2.0;
     float2 center = bounds.origin + half_size;
-    float2 p = abs(point - center);
-    float corner_radius = pick_corner_radius(point - center, corner_radii);
+    float2 p = abs(pt - center);
+    float corner_radius = pick_corner_radius(pt - center, corner_radii);
     float2 effective_half = half_size - corner_radius;
     float2 q = max(float2(0.0, 0.0), p - effective_half);
     float n = 2.5;

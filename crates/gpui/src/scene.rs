@@ -160,16 +160,37 @@ impl Scene {
     }
 
     pub fn finish(&mut self) {
-        self.shadows.sort_unstable_by_key(|shadow| shadow.order);
-        self.quads.sort_unstable_by_key(|quad| quad.order);
-        self.paths.sort_unstable_by_key(|path| path.order);
-        self.underlines
-            .sort_unstable_by_key(|underline| underline.order);
-        self.monochrome_sprites
-            .sort_unstable_by_key(|sprite| (sprite.order, sprite.tile.tile_id));
-        self.polychrome_sprites
-            .sort_unstable_by_key(|sprite| (sprite.order, sprite.tile.tile_id));
-        self.surfaces.sort_unstable_by_key(|surface| surface.order);
+        // Primitives are typically inserted in draw order during painting.
+        // Skip the O(n log n) sort when data is already sorted (common case).
+        if !self.shadows.is_sorted_by_key(|s| s.order) {
+            self.shadows.sort_unstable_by_key(|s| s.order);
+        }
+        if !self.quads.is_sorted_by_key(|q| q.order) {
+            self.quads.sort_unstable_by_key(|q| q.order);
+        }
+        if !self.paths.is_sorted_by_key(|p| p.order) {
+            self.paths.sort_unstable_by_key(|p| p.order);
+        }
+        if !self.underlines.is_sorted_by_key(|u| u.order) {
+            self.underlines.sort_unstable_by_key(|u| u.order);
+        }
+        if !self
+            .monochrome_sprites
+            .is_sorted_by_key(|s| (s.order, s.tile.tile_id))
+        {
+            self.monochrome_sprites
+                .sort_unstable_by_key(|s| (s.order, s.tile.tile_id));
+        }
+        if !self
+            .polychrome_sprites
+            .is_sorted_by_key(|s| (s.order, s.tile.tile_id))
+        {
+            self.polychrome_sprites
+                .sort_unstable_by_key(|s| (s.order, s.tile.tile_id));
+        }
+        if !self.surfaces.is_sorted_by_key(|s| s.order) {
+            self.surfaces.sort_unstable_by_key(|s| s.order);
+        }
     }
 
     #[cfg_attr(

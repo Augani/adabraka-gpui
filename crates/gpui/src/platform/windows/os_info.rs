@@ -1,4 +1,5 @@
-use windows::Win32::System::SystemInformation::GetComputerNameW;
+use windows::Win32::System::WindowsProgramming::GetComputerNameW;
+use windows::core::PWSTR;
 
 use crate::OsInfo;
 
@@ -32,7 +33,7 @@ fn get_windows_version() -> String {
 fn get_hostname() -> String {
     let mut size: u32 = 256;
     let mut buffer = vec![0u16; size as usize];
-    let result = unsafe { GetComputerNameW(Some(&mut buffer), &mut size) };
+    let result = unsafe { GetComputerNameW(Some(PWSTR(buffer.as_mut_ptr())), &mut size) };
     if result.is_ok() {
         String::from_utf16_lossy(&buffer[..size as usize])
     } else {

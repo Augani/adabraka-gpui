@@ -911,13 +911,13 @@ impl Platform for WindowsPlatform {
                 TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD,
                 screen_x,
                 screen_y,
-                0,
+                None,
                 self.handle,
                 None,
             );
             let _ = DestroyMenu(hmenu);
 
-            if let Ok(result) = result {
+            if result.as_bool() {
                 if result.0 != 0 {
                     PostMessageW(
                         Some(self.handle),
@@ -990,7 +990,7 @@ impl WindowsPlatformInner {
             WM_COMMAND => self.handle_tray_menu_command(wparam),
             WM_HOTKEY => self.handle_global_hotkey(wparam),
             WM_POWERBROADCAST => self.handle_power_broadcast(wparam),
-            WM_WTSSESSION_CHANGE => self.handle_session_change(wparam),
+            super::events::WM_WTSSESSION_CHANGE => self.handle_session_change(wparam),
             WM_GPUI_NETWORK_CHANGE => self.handle_network_change(),
             WM_GPUI_MEDIA_KEY => self.handle_media_key(wparam, lparam),
             WM_GPUI_CONTEXT_MENU_ACTION => self.handle_context_menu_action(wparam, lparam),

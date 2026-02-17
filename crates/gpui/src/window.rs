@@ -1321,6 +1321,7 @@ impl Window {
         }
     }
 
+
     /// Registers a callback to be invoked when the window appearance changes.
     pub fn observe_window_appearance(
         &self,
