@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1 (2026-02-17)
+
+### Performance
+
+- **DirectX pipeline state caching** — skip redundant `set_pipeline_state` calls when consecutive batches use the same pipeline, saving ~6 D3D11 API calls per batch in text-heavy UIs
+- **Cross-window text layout cache** — global LRU cache on `TextSystem` prevents re-shaping text that another window already shaped
+
 ## 0.5.0 (2026-02-15)
 
 ### Desktop Platform Features

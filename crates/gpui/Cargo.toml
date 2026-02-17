@@ -1,7 +1,7 @@
 [package]
 edition = "2024"
 name = "adabraka-gpui"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["Adabraka Team"]
 build = "build.rs"
 publish = true
@@ -242,7 +242,7 @@ optional = true
 [dependencies.collections]
 path = "../collections"
 package = "adabraka_collections"
-version = "0.5.0"
+version = "0.5.1"
 
 [dependencies.ctor]
 version = "0.3.0"
@@ -259,12 +259,12 @@ version = "0.3"
 [dependencies.gpui_macros]
 path = "../gpui-macros"
 package = "adabraka-gpui-macros"
-version = "0.5.0"
+version = "0.5.1"
 
 [dependencies.http_client]
 path = "../http_client"
 package = "adabraka_http_client"
-version = "0.5.0"
+version = "0.5.1"
 
 [dependencies.image]
 version = "0.25.1"
@@ -314,7 +314,7 @@ version = "0.6"
 [dependencies.refineable]
 path = "../refineable"
 package = "adabraka_refineable"
-version = "0.5.0"
+version = "0.5.1"
 
 [dependencies.resvg]
 version = "0.45.0"
@@ -335,7 +335,7 @@ version = "4.1"
 [dependencies.semantic_version]
 path = "../semantic_version"
 package = "adabraka_semantic_version"
-version = "0.5.0"
+version = "0.5.1"
 
 [dependencies.serde]
 version = "1.0.221"
@@ -371,7 +371,7 @@ features = ["derive"]
 [dependencies.sum_tree]
 path = "../sum_tree"
 package = "adabraka_sum_tree"
-version = "0.5.0"
+version = "0.5.1"
 
 [dependencies.taffy]
 version = "=0.9.0"
@@ -386,12 +386,12 @@ default-features = false
 [dependencies.util]
 path = "../util"
 package = "adabraka_util"
-version = "0.5.0"
+version = "0.5.1"
 
 [dependencies.util_macros]
 path = "../util_macros"
 package = "adabraka_util_macros"
-version = "0.5.0"
+version = "0.5.1"
 
 [dependencies.uuid]
 version = "1.1.2"
@@ -413,7 +413,7 @@ version = "0.3"
 path = "../collections"
 features = ["test-support"]
 package = "adabraka_collections"
-version = "0.5.0"
+version = "0.5.1"
 
 [dev-dependencies.env_logger]
 version = "0.11"
@@ -422,7 +422,7 @@ version = "0.11"
 path = "../http_client"
 features = ["test-support"]
 package = "adabraka_http_client"
-version = "0.5.0"
+version = "0.5.1"
 
 [dev-dependencies.lyon]
 version = "1.0"
@@ -442,7 +442,7 @@ version = "1.10"
 path = "../util"
 features = ["test-support"]
 package = "adabraka_util"
-version = "0.5.0"
+version = "0.5.1"
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies.as-raw-xcb-connection]
 version = "1"
@@ -631,7 +631,7 @@ features = [
 [target.'cfg(target_os = "macos")'.dependencies.media]
 path = "../media"
 package = "adabraka_media"
-version = "0.5.0"
+version = "0.5.1"
 
 [target.'cfg(target_os = "macos")'.dependencies.metal]
 version = "0.29"
