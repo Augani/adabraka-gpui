@@ -6,7 +6,10 @@ use std::{
     borrow::Borrow,
     hash::{Hash, Hasher},
     ops::Range,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use super::LineWrapper;
@@ -389,10 +392,93 @@ impl WrappedLineLayout {
     }
 }
 
+const GLOBAL_CACHE_MAX_ENTRIES: usize = 10_000;
+
+struct GlobalCacheEntry<T> {
+    value: T,
+    last_access: AtomicU64,
+}
+
+pub(crate) struct GlobalLineLayoutCache {
+    lines: RwLock<FxHashMap<Arc<CacheKey>, GlobalCacheEntry<Arc<LineLayout>>>>,
+    wrapped_lines: RwLock<FxHashMap<Arc<CacheKey>, GlobalCacheEntry<Arc<WrappedLineLayout>>>>,
+    access_counter: AtomicU64,
+}
+
+impl GlobalLineLayoutCache {
+    pub fn new() -> Self {
+        Self {
+            lines: RwLock::new(FxHashMap::default()),
+            wrapped_lines: RwLock::new(FxHashMap::default()),
+            access_counter: AtomicU64::new(0),
+        }
+    }
+
+    fn get_line(&self, key: &dyn AsCacheKeyRef) -> Option<Arc<LineLayout>> {
+        let lines = self.lines.read();
+        if let Some(entry) = lines.get(key) {
+            // Relaxed is fine — this is just for approximate LRU ordering
+            entry
+                .last_access
+                .store(self.access_counter.fetch_add(1, Ordering::Relaxed), Ordering::Relaxed);
+            Some(entry.value.clone())
+        } else {
+            None
+        }
+    }
+
+    fn insert_line(&self, key: Arc<CacheKey>, layout: Arc<LineLayout>) {
+        let mut lines = self.lines.write();
+        if lines.len() >= GLOBAL_CACHE_MAX_ENTRIES {
+            Self::evict_oldest(&mut lines);
+        }
+        lines.insert(key, GlobalCacheEntry {
+            value: layout,
+            last_access: AtomicU64::new(self.access_counter.fetch_add(1, Ordering::Relaxed)),
+        });
+    }
+
+    fn get_wrapped_line(&self, key: &dyn AsCacheKeyRef) -> Option<Arc<WrappedLineLayout>> {
+        let wrapped = self.wrapped_lines.read();
+        if let Some(entry) = wrapped.get(key) {
+            entry
+                .last_access
+                .store(self.access_counter.fetch_add(1, Ordering::Relaxed), Ordering::Relaxed);
+            Some(entry.value.clone())
+        } else {
+            None
+        }
+    }
+
+    fn insert_wrapped_line(&self, key: Arc<CacheKey>, layout: Arc<WrappedLineLayout>) {
+        let mut wrapped = self.wrapped_lines.write();
+        if wrapped.len() >= GLOBAL_CACHE_MAX_ENTRIES {
+            Self::evict_oldest(&mut wrapped);
+        }
+        wrapped.insert(key, GlobalCacheEntry {
+            value: layout,
+            last_access: AtomicU64::new(self.access_counter.fetch_add(1, Ordering::Relaxed)),
+        });
+    }
+
+    fn evict_oldest<V>(map: &mut FxHashMap<Arc<CacheKey>, GlobalCacheEntry<V>>) {
+        let half = map.len() / 2;
+        let mut entries: Vec<_> = map
+            .keys()
+            .map(|k| (k.clone(), map.get(k).unwrap().last_access.load(Ordering::Relaxed)))
+            .collect();
+        entries.sort_by_key(|(_, access)| *access);
+        for (key, _) in entries.into_iter().take(half) {
+            map.remove(&key);
+        }
+    }
+}
+
 pub(crate) struct LineLayoutCache {
     previous_frame: Mutex<FrameCache>,
     current_frame: RwLock<FrameCache>,
     platform_text_system: Arc<dyn PlatformTextSystem>,
+    global_cache: Arc<GlobalLineLayoutCache>,
 }
 
 #[derive(Default)]
@@ -410,11 +496,15 @@ pub(crate) struct LineLayoutIndex {
 }
 
 impl LineLayoutCache {
-    pub fn new(platform_text_system: Arc<dyn PlatformTextSystem>) -> Self {
+    pub fn new(
+        platform_text_system: Arc<dyn PlatformTextSystem>,
+        global_cache: Arc<GlobalLineLayoutCache>,
+    ) -> Self {
         Self {
             previous_frame: Mutex::default(),
             current_frame: RwLock::default(),
             platform_text_system,
+            global_cache,
         }
     }
 
@@ -500,6 +590,24 @@ impl LineLayoutCache {
             current_frame.used_wrapped_lines.push(key);
             layout
         } else {
+            // Check global cross-window cache
+            if let Some(layout) = self.global_cache.get_wrapped_line(key) {
+                let mut current_frame = RwLockUpgradableReadGuard::upgrade(current_frame);
+                let key = Arc::new(CacheKey {
+                    text: SharedString::from(text),
+                    font_size,
+                    runs: SmallVec::from(runs),
+                    wrap_width,
+                    force_width: None,
+                    letter_spacing: None,
+                });
+                current_frame
+                    .wrapped_lines
+                    .insert(key.clone(), layout.clone());
+                current_frame.used_wrapped_lines.push(key);
+                return layout;
+            }
+
             drop(current_frame);
             let text = SharedString::from(text);
             let unwrapped_layout = self.layout_line::<&SharedString>(&text, font_size, runs, None);
@@ -526,7 +634,8 @@ impl LineLayoutCache {
             current_frame
                 .wrapped_lines
                 .insert(key.clone(), layout.clone());
-            current_frame.used_wrapped_lines.push(key);
+            current_frame.used_wrapped_lines.push(key.clone());
+            self.global_cache.insert_wrapped_line(key, layout.clone());
 
             layout
         }
@@ -579,6 +688,21 @@ impl LineLayoutCache {
             return layout;
         }
 
+        // Check global cross-window cache
+        if let Some(layout) = self.global_cache.get_line(key) {
+            let key = Arc::new(CacheKey {
+                text: SharedString::from(text),
+                font_size,
+                runs: SmallVec::from(runs),
+                wrap_width: None,
+                force_width,
+                letter_spacing,
+            });
+            current_frame.lines.insert(key.clone(), layout.clone());
+            current_frame.used_lines.push(key);
+            return layout;
+        }
+
         let text = SharedString::from(text);
         let mut layout = self
             .platform_text_system
@@ -620,7 +744,8 @@ impl LineLayoutCache {
         });
         let layout = Arc::new(layout);
         current_frame.lines.insert(key.clone(), layout.clone());
-        current_frame.used_lines.push(key);
+        current_frame.used_lines.push(key.clone());
+        self.global_cache.insert_line(key, layout.clone());
         layout
     }
 }

@@ -45,6 +45,7 @@ pub(crate) struct DirectXRenderer {
     pipelines: DirectXRenderPipelines,
     direct_composition: Option<DirectComposition>,
     font_info: &'static FontInfo,
+    last_pipeline: Option<*const ()>,
 }
 
 /// Direct3D objects
@@ -164,6 +165,7 @@ impl DirectXRenderer {
             pipelines,
             direct_composition,
             font_info: Self::get_font_info(),
+            last_pipeline: None,
         })
     }
 
@@ -171,7 +173,8 @@ impl DirectXRenderer {
         self.atlas.clone()
     }
 
-    fn pre_draw(&self) -> Result<()> {
+    fn pre_draw(&mut self) -> Result<()> {
+        self.last_pipeline = None;
         update_buffer(
             &self.devices.device_context,
             self.globals.global_params_buffer[0].as_ref().unwrap(),
@@ -365,6 +368,7 @@ impl DirectXRenderer {
             &self.devices.device,
             &self.devices.device_context,
             shadows,
+            &mut self.last_pipeline,
         )?;
         self.pipelines.shadow_pipeline.draw(
             &self.devices.device_context,
@@ -373,6 +377,7 @@ impl DirectXRenderer {
             D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
             4,
             shadows.len() as u32,
+            &mut self.last_pipeline,
         )
     }
 
@@ -384,6 +389,7 @@ impl DirectXRenderer {
             &self.devices.device,
             &self.devices.device_context,
             quads,
+            &mut self.last_pipeline,
         )?;
         self.pipelines.quad_pipeline.draw(
             &self.devices.device_context,
@@ -392,6 +398,7 @@ impl DirectXRenderer {
             D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
             4,
             quads.len() as u32,
+            &mut self.last_pipeline,
         )
     }
 
@@ -399,6 +406,9 @@ impl DirectXRenderer {
         if paths.is_empty() {
             return Ok(());
         }
+
+        // Render target change invalidates pipeline state cache
+        self.last_pipeline = None;
 
         // Clear intermediate MSAA texture
         unsafe {
@@ -430,6 +440,7 @@ impl DirectXRenderer {
             &self.devices.device,
             &self.devices.device_context,
             &vertices,
+            &mut self.last_pipeline,
         )?;
         self.pipelines.path_rasterization_pipeline.draw(
             &self.devices.device_context,
@@ -438,6 +449,7 @@ impl DirectXRenderer {
             D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
             vertices.len() as u32,
             1,
+            &mut self.last_pipeline,
         )?;
 
         // Resolve MSAA to non-MSAA intermediate texture
@@ -449,7 +461,8 @@ impl DirectXRenderer {
                 0,
                 RENDER_TARGET_FORMAT,
             );
-            // Restore main render target
+            // Restore main render target — invalidates pipeline state cache
+            self.last_pipeline = None;
             self.devices
                 .device_context
                 .OMSetRenderTargets(Some(&self.resources.render_target_view), None);
@@ -489,6 +502,7 @@ impl DirectXRenderer {
             &self.devices.device,
             &self.devices.device_context,
             &sprites,
+            &mut self.last_pipeline,
         )?;
 
         // Draw the sprites with the path texture
@@ -499,6 +513,7 @@ impl DirectXRenderer {
             &self.globals.global_params_buffer,
             &self.globals.sampler,
             sprites.len() as u32,
+            &mut self.last_pipeline,
         )
     }
 
@@ -510,6 +525,7 @@ impl DirectXRenderer {
             &self.devices.device,
             &self.devices.device_context,
             underlines,
+            &mut self.last_pipeline,
         )?;
         self.pipelines.underline_pipeline.draw(
             &self.devices.device_context,
@@ -518,6 +534,7 @@ impl DirectXRenderer {
             D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
             4,
             underlines.len() as u32,
+            &mut self.last_pipeline,
         )
     }
 
@@ -533,6 +550,7 @@ impl DirectXRenderer {
             &self.devices.device,
             &self.devices.device_context,
             sprites,
+            &mut self.last_pipeline,
         )?;
         let texture_view = self.atlas.get_texture_view(texture_id);
         self.pipelines.mono_sprites.draw_with_texture(
@@ -542,6 +560,7 @@ impl DirectXRenderer {
             &self.globals.global_params_buffer,
             &self.globals.sampler,
             sprites.len() as u32,
+            &mut self.last_pipeline,
         )
     }
 
@@ -557,6 +576,7 @@ impl DirectXRenderer {
             &self.devices.device,
             &self.devices.device_context,
             sprites,
+            &mut self.last_pipeline,
         )?;
         let texture_view = self.atlas.get_texture_view(texture_id);
         self.pipelines.poly_sprites.draw_with_texture(
@@ -566,6 +586,7 @@ impl DirectXRenderer {
             &self.globals.global_params_buffer,
             &self.globals.sampler,
             sprites.len() as u32,
+            &mut self.last_pipeline,
         )
     }
 
@@ -906,6 +927,7 @@ impl<T> PipelineState<T> {
         device: &ID3D11Device,
         device_context: &ID3D11DeviceContext,
         data: &[T],
+        last_pipeline: &mut Option<*const ()>,
     ) -> Result<()> {
         if self.buffer_size < data.len() {
             let new_buffer_size = std::cmp::max(data.len() * 3 / 2, self.buffer_size);
@@ -920,6 +942,8 @@ impl<T> PipelineState<T> {
             self.buffer = buffer;
             self.view = view;
             self.buffer_size = new_buffer_size;
+            // Buffer view changed, invalidate pipeline state cache
+            *last_pipeline = None;
         }
         update_buffer(device_context, &self.buffer, data)
     }
@@ -932,17 +956,22 @@ impl<T> PipelineState<T> {
         topology: D3D_PRIMITIVE_TOPOLOGY,
         vertex_count: u32,
         instance_count: u32,
+        last_pipeline: &mut Option<*const ()>,
     ) -> Result<()> {
-        set_pipeline_state(
-            device_context,
-            &self.view,
-            topology,
-            viewport,
-            &self.vertex,
-            &self.fragment,
-            global_params,
-            &self.blend_state,
-        );
+        let self_ptr = self as *const Self as *const ();
+        if *last_pipeline != Some(self_ptr) {
+            set_pipeline_state(
+                device_context,
+                &self.view,
+                topology,
+                viewport,
+                &self.vertex,
+                &self.fragment,
+                global_params,
+                &self.blend_state,
+            );
+            *last_pipeline = Some(self_ptr);
+        }
         unsafe {
             device_context.DrawInstanced(vertex_count, instance_count, 0, 0);
         }
@@ -957,18 +986,24 @@ impl<T> PipelineState<T> {
         global_params: &[Option<ID3D11Buffer>],
         sampler: &[Option<ID3D11SamplerState>],
         instance_count: u32,
+        last_pipeline: &mut Option<*const ()>,
     ) -> Result<()> {
-        set_pipeline_state(
-            device_context,
-            &self.view,
-            D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
-            viewport,
-            &self.vertex,
-            &self.fragment,
-            global_params,
-            &self.blend_state,
-        );
+        let self_ptr = self as *const Self as *const ();
+        if *last_pipeline != Some(self_ptr) {
+            set_pipeline_state(
+                device_context,
+                &self.view,
+                D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
+                viewport,
+                &self.vertex,
+                &self.fragment,
+                global_params,
+                &self.blend_state,
+            );
+            *last_pipeline = Some(self_ptr);
+        }
         unsafe {
+            // Always set texture SRV — it changes per batch for different atlas textures
             device_context.PSSetSamplers(0, Some(sampler));
             device_context.VSSetShaderResources(0, Some(texture));
             device_context.PSSetShaderResources(0, Some(texture));
